@@ -1,0 +1,148 @@
+# Single-Server Scraping & Dashboard System Plan
+
+## 1. High-Level Architecture (Monolithic)
+
+This system is designed to run entirely on one Ubuntu instance. Redis replaces Kafka for the message queue (lighter), and PostgreSQL is used immediately for robust storage.
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                   SINGLE UBUNTU SERVER                      │
+│                                                             │
+│  1. ORCHESTRATION & QUEUE                                   │
+│  ┌─────────────────┐       ┌───────────────────────────┐    │
+│  │   Scheduler     │──────▶│       Redis Queue         │    │
+│  │ (Celery Beat)   │       │ (Broker & Rate Limiting)  │    │
+│  └─────────────────┘       └─────────────┬─────────────┘    │
+│                                          │                  │
+│  2. WORKERS (Scraping Layer)             │                  │
+│  ┌───────────────────────────────────────▼────────────────┐ │
+│  │   Celery Workers (Python)                              │ │
+│  │   [ aiohttp | BeautifulSoup | robots.txt checker ]     │ │
+│  └───────────────────────────────────────┬────────────────┘ │
+│                                          │                  │
+│  3. STORAGE LAYER                        │                  │
+│  ┌───────────────────────────────────────▼────────────────┐ │
+│  │               PostgreSQL Database                      │ │
+│  │        (Raw HTML, Parsed Data, Logs, Config)           │ │
+│  └───────────────────────────────────────┬────────────────┘ │
+│                                          │                  │
+│  4. VISUALIZATION LAYER                  │                  │
+│  ┌───────────────────────────────────────▼────────────────┐ │
+│  │               Streamlit App                            │ │
+│  │      (Direct SQL queries -> Charts/Tables)             │ │
+│  └────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 2. Technology Stack
+
+*   **OS:** Ubuntu 22.04 / 24.04 LTS.
+*   **Language:** Python 3.10+.
+*   **Database:** PostgreSQL (Production-grade relational data from Day 1).
+*   **Queue/Broker:** Redis (Handles task distribution and caching).
+*   **Scraping:** `aiohttp` (Async requests), `BeautifulSoup` (Parsing), `Tenacity` (Retries).
+*   **Dashboard:** Streamlit (Python-native UI).
+*   **Process Management:** `Systemd` or `Docker Compose`.
+
+## 3. Data & Logic Flow
+
+1.  **Ingestion:** Scheduler triggers a task for a target URL.
+2.  **Compliance Check:** **Mandatory** check of `target.com/robots.txt` to confirm scraping is allowed.
+3.  **Fetch:** Async HTTP request (with User-Agent rotation).
+4.  **Parse:** Extract data using CSS selectors/XPath.
+5.  **Persist:** Upsert data into PostgreSQL (prevent duplicates via unique keys).
+6.  **Visualize:** Streamlit queries PostgreSQL and renders metrics/tables.
+
+## 4. Key Components Detail
+
+### 4.1 Database Schema (PostgreSQL)
+We skip SQLite to avoid migration pain later.
+
+```sql
+CREATE TABLE sources (
+    id SERIAL PRIMARY KEY,
+    domain VARCHAR(255) UNIQUE,
+    robots_url VARCHAR(255),
+    last_crawled TIMESTAMP
+);
+
+CREATE TABLE scraped_data (
+    id SERIAL PRIMARY KEY,
+    source_id INTEGER REFERENCES sources(id),
+    url TEXT UNIQUE,
+    title TEXT,
+    content_payload JSONB, -- Flexible storage for different schemas
+    crawled_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE logs (
+    id SERIAL PRIMARY KEY,
+    level VARCHAR(50),
+    message TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### 4.2 The Scraper Logic (Compliance First)
+
+*   **Library:** `urllib.robotparser` (Standard Python lib).
+*   **Logic:**
+    *   Check `robots.txt` cache (TTL: 24 hours).
+    *   If `Allowed`: Proceed with request.
+    *   If `Disallowed`: Log event and skip.
+*   **Rate Limiting:** Use Redis to enforce max 1 request per second per domain.
+
+### 4.3 The Dashboard (Streamlit)
+
+*   **Page 1: Overview:** Total rows scraped, rows per hour chart, error rates.
+*   **Page 2: Data Inspector:** Searchable table of `scraped_data`.
+*   **Page 3: System Health:** Queue size (Redis), Worker status, Robots.txt rejection logs.
+
+## 5. Implementation Roadmap (3 Days)
+
+### Day 1: Infrastructure & Database
+1.  Provision Ubuntu server.
+2.  Install Postgres & Redis (`apt install postgresql redis`).
+3.  Set up Python environment (`poetry` or `venv`).
+4.  Implement `models.py` (SQLAlchemy/SQLModel) and apply schema.
+
+### Day 2: Scraper & Workers
+1.  Implement `robots.py` (Compliance module).
+2.  Create Celery worker tasks for fetching and parsing.
+3.  Implement `aiohttp` logic with error handling (429/500 retries).
+4.  Test scraping on 1 target site.
+
+### Day 3: Dashboard & Automation
+1.  Build `app.py` using Streamlit.
+2.  Connect Streamlit to Postgres.
+3.  Set up `systemd` services (or Docker Compose) to keep Celery and Streamlit running in the background.
+4.  Define cron schedule (Celery Beat) for periodic scraping.
+
+## 6. Deployment Commands (Ubuntu Quick-Start)
+
+```bash
+# 1. System Setup
+sudo apt update && sudo apt install -y postgresql postgresql-contrib redis-server python3-pip python3-venv
+
+# 2. Database Setup
+sudo -u postgres psql -c "CREATE DATABASE scraper_db;"
+sudo -u postgres psql -c "CREATE USER scraper_user WITH PASSWORD 'secure_password';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE scraper_db TO scraper_user;"
+
+# 3. Project Setup
+python3 -m venv venv
+source venv/bin/activate
+pip install aiohttp beautifulsoup4 sqlalchemy psycopg2-binary celery redis streamlit
+
+# 4. Run (Dev Mode)
+# Terminal 1: Worker
+celery -A tasks worker --loglevel=info
+# Terminal 2: Dashboard
+streamlit run app.py
+```
+
+## 7. Risk Controls
+
+*   **Robots.txt:** Strict enforcement prevents legal issues.
+*   **Rate Limiting:** 1 request/sec default prevents IP bans.
+*   **Data Validation:** Pydantic models before inserting into Postgres to ensure quality.
