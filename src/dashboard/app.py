@@ -28,31 +28,47 @@ def load_data():
 if st.button("🔄 Refresh Data"):
     st.cache_data.clear()
 
-# --- NEW SECTION: ADD URL ---
-st.sidebar.header("Add New Source")
-new_url = st.sidebar.text_input("Enter URL to scrape:")
+# --- NEW SECTION: BULK ADD ---
+st.sidebar.header("Add New Source(s)")
+# Changed from text_input to text_area for multiple lines
+url_input = st.sidebar.text_area("Enter URLs (one per line):", height=150)
 
 if st.sidebar.button("🚀 Launch Scraper"):
-    if new_url:
-        # FIX: Import the App object, not the function
+    if url_input:
         from src.scraper.tasks import app as celery_app
         
-        # Send the task by NAME (String)
-        # This tells Redis: "Hey, find the task named 'src.scraper.tasks.scrape_task' and run it"
-        celery_app.send_task('src.scraper.tasks.scrape_task', args=[new_url])
+        # Split the input by new lines to get a list
+        urls = url_input.strip().split('\n')
         
-        st.sidebar.success(f"Task queued! Check the main table shortly.")
+        count = 0
+        for url in urls:
+            url = url.strip()
+            if url:
+                celery_app.send_task('src.scraper.tasks.scrape_task', args=[url])
+                count += 1
+        
+        st.sidebar.success(f"Queued {count} tasks! Check the main table shortly.")
     else:
-        st.sidebar.warning("Please enter a URL.")
+        st.sidebar.warning("Please enter at least one URL.")
 # -----------------------------
-
 # 5. Display Stats
 df = load_data()
 
-col1, col2 = st.columns(2)
-col1.metric("Total Pages Scraped", len(df))
+# --- ANALYTICS SECTION ---
 if not df.empty:
-    col2.metric("Latest Scrape", df.iloc[0]['url'])
+    st.subheader("📊 Analytics: Links per Page")
+    
+    # 1. Extract 'links_found' from the JSON content column
+    # We use a lambda function to dig into the dictionary
+    df['link_count'] = df['content'].apply(lambda x: x.get('links_found', 0) if x else 0)
+    
+    # 2. Create a clean subset for the chart
+    chart_data = df[['url', 'link_count']].copy()
+    chart_data.set_index('url', inplace=True)
+    
+    # 3. Render the Chart
+    st.bar_chart(chart_data)
+# -------------------------
 
 # 6. Display Table
 st.subheader("Recent Data")
