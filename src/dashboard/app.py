@@ -28,6 +28,24 @@ def load_data():
 if st.button("🔄 Refresh Data"):
     st.cache_data.clear()
 
+# --- NEW SECTION: ADD URL ---
+st.sidebar.header("Add New Source")
+new_url = st.sidebar.text_input("Enter URL to scrape:")
+
+if st.sidebar.button("🚀 Launch Scraper"):
+    if new_url:
+        # FIX: Import the App object, not the function
+        from src.scraper.tasks import app as celery_app
+        
+        # Send the task by NAME (String)
+        # This tells Redis: "Hey, find the task named 'src.scraper.tasks.scrape_task' and run it"
+        celery_app.send_task('src.scraper.tasks.scrape_task', args=[new_url])
+        
+        st.sidebar.success(f"Task queued! Check the main table shortly.")
+    else:
+        st.sidebar.warning("Please enter a URL.")
+# -----------------------------
+
 # 5. Display Stats
 df = load_data()
 
@@ -40,7 +58,7 @@ if not df.empty:
 st.subheader("Recent Data")
 if not df.empty:
     # Show the table
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df)
     
     # Show raw JSON for selected row
     st.subheader("Inspect Content (JSON)")

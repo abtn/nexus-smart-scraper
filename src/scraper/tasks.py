@@ -40,25 +40,56 @@ def scrape_task(url):
         
         # Extract the page title, or use "No Title" if missing
         page_title = soup.title.string if soup.title else "No Title"
+       
+       # --- NEW EXTRACTION LOGIC ---
+        # 1. Get all H2 headings (main topics)
+        headings = [h.get_text(strip=True) for h in soup.find_all('h2')]
         
-        # 4. Save to Database
-        db = SessionLocal() # Open connection
+        # 2. Get the first 5 external links
+        links = [a['href'] for a in soup.find_all('a', href=True) if 'http' in a['href']]
         
-        new_data = ScrapedData(
-            url=url,
-            title=page_title,
-            content={"status": "success", "length": len(response.text)}
-        )
+        # 3. Create a rich data packet
+        rich_content = {
+            "status": "success",
+            "scraped_at": str(response.elapsed.total_seconds()) + "s",
+            "headings": headings[:5],  # Just the top 5
+            "links_found": len(links),
+            "sample_links": links[:5]  # Just the top 5
+        }
+        # -----------------------------
+        
+        # 4. Save to Database (Smart Update v2)
+        db = SessionLocal()
+        
+        # Check if URL exists
+        # We use .first() to grab the record if it exists
+        existing_record = db.query(ScrapedData).filter(ScrapedData.url == url).first()
+        
+        if existing_record:
+            # OPTION A: The Direct Update (Try this first)
+            # This is the standard SQLAlchemy way. 
+            # If VS Code complains, ignore it and run.
+            existing_record.title = page_title # pyright: ignore[reportAttributeAccessIssue]
+            existing_record.content = rich_content # pyright: ignore[reportAttributeAccessIssue]
+            print(f"♻️ UPDATED: Refreshed data for '{page_title}'")
+            
+        else:
+            # INSERT new record
+            new_data = ScrapedData(
+                url=url,
+                title=page_title,
+                content=rich_content
+            )
+            db.add(new_data)
+            print(f"✅ CREATED: Saved new page '{page_title}'")
         
         try:
-            db.add(new_data)
-            db.commit() # Save changes
-            print(f"✅ DISH READY: Saved '{page_title}' to DB")
-        except IntegrityError:
+            db.commit()
+        except Exception as e:
             db.rollback()
-            print(f"⚠️ Duplicate found: {url} is already in DB")
+            print(f"🔥 DB Error: {e}")
         finally:
-            db.close() # Close connection
+            db.close()
             
         return "Success"
 
