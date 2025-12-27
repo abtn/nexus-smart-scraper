@@ -3,7 +3,7 @@ import requests
 from celery import Celery
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -75,7 +75,7 @@ def scrape_task(self, url):
                 source = Source(
                     domain=domain,
                     robots_url=f"{parsed.scheme}://{domain}/robots.txt",
-                    last_crawled=datetime.utcnow()
+                    last_crawled=datetime.now(timezone.utc) # time fixed
                 )
                 db.add(source)
                 db.commit()
@@ -85,7 +85,7 @@ def scrape_task(self, url):
                 source = db.query(Source).filter(Source.domain == domain).first()
         
         if source:
-            source.last_crawled = datetime.utcnow() # pyright: ignore
+            source.last_crawled = datetime.now(timezone.utc) # pyright: ignore
             db.commit()
         # ---------------------------
 
@@ -114,7 +114,7 @@ def scrape_task(self, url):
         
         rich_content = {
             "status": "success",
-            "scraped_at": datetime.utcnow().isoformat(),
+            "scraped_at": datetime.now(timezone.utc).isoformat(),
             **extracted_data
         }
 
