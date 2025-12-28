@@ -1,6 +1,7 @@
 # Ignore the virtual environment (Biggest culprit!)
 venv/
 .venv/
+qwen-code/
 
 # Ignore git history
 .git/
@@ -9,7 +10,7 @@ venv/
 .env
 logs/
 postgres_data/
-qwen-code/
+
 
 # Ignore cache
 __pycache__/
