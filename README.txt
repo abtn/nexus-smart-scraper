@@ -2,7 +2,7 @@
 
 A high-performance, containerized web scraping platform built with Python, Celery, and Streamlit. Designed for concurrency, resilience, and strict compliance.
 
-![CI Status](https://github.com/YOUR_USERNAME/scrapping-project-for-abtin/actions/workflows/ci.yml/badge.svg)
+[![CI Pipeline](https://github.com/abtn/scrapping-project-for-abtin/actions/workflows/ci.yml/badge.svg)](https://github.com/abtn/scrapping-project-for-abtin/actions/workflows/ci.yml)
 
 ## 🏗️ Architecture
 
@@ -59,5 +59,6 @@ pytest tests/ -v
 - **Streamlit / Pandas**
 - **Pytest / GitHub Actions**
 ```
+
 
 
