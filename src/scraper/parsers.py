@@ -1,4 +1,4 @@
-import trafilatura
+import trafilatura # type: ignore
 import json
 from bs4 import BeautifulSoup
 
@@ -49,6 +49,6 @@ def parse_smart(html_content: str, url: str) -> dict:
     # If we still don't have a title, try to grab it with BeautifulSoup
     if not data.get('title'):
         soup = BeautifulSoup(html_content, 'html.parser')
-        data['title'] = soup.title.get_text(strip=True) if soup.title else "No Title"
+        data['title'] = soup.title.get_text(strip=True) if soup.title else "No Title" # type: ignore
 
     return data
