@@ -1,40 +1,40 @@
-from bs4 import BeautifulSoup
-from src.scraper.parsers import parse_generic
+from unittest.mock import patch
+from src.scraper.parsers import parse_smart
 
-def test_parse_generic_valid():
+def test_parse_smart_valid_json(mocker):
     """
-    Test extraction of title, headings, and links from valid HTML.
+    Test that parse_smart correctly parses the JSON output from trafilatura.
     """
-    html = """
-    <html>
-        <head><title>Test Page Title</title></head>
-        <body>
-            <h2>First Heading</h2>
-            <h2>Second Heading</h2>
-            <a href="http://example.com/1">Link 1</a>
-            <a href="http://example.com/2">Link 2</a>
-            <a href="/relative">Relative Link</a>
-        </body>
-    </html>
-    """
-    soup = BeautifulSoup(html, 'html.parser')
-    data = parse_generic(soup)
+    # We mock 'trafilatura.extract' to return a specific JSON string.
+    # This keeps the test fast and independent of external library logic.
+    mock_extract = mocker.patch('src.scraper.parsers.trafilatura.extract')
+    
+    # Simulate a successful trafilatura response
+    mock_extract.return_value = '{"title": "Test Article", "author": "John Doe", "text": "Body text here"}'
+
+    html_content = "<html><body>...</body></html>"
+    url = "http://test.com"
+    
+    result = parse_smart(html_content, url)
     
     # Assertions
-    assert data['title'] == "Test Page Title"
-    assert len(data['headings']) == 2
-    assert "First Heading" in data['headings']
-    
-    # Should count absolute links only (based on your parser logic)
-    assert data['links_found'] == 2 
-    assert "http://example.com/1" in data['sample_links']
+    assert result['title'] == "Test Article"
+    assert result['author'] == "John Doe"
+    assert result['clean_text'] == "Body text here"
 
-def test_parse_generic_empty():
+def test_parse_smart_fallback_to_bs4(mocker):
     """
-    Test handling of empty or malformed HTML.
+    Test that if trafilatura returns nothing, we fallback to BeautifulSoup for the title.
     """
-    soup = BeautifulSoup("", 'html.parser')
-    data = parse_generic(soup)
+    # Mock trafilatura to return None (simulating a parse failure)
+    mocker.patch('src.scraper.parsers.trafilatura.extract', return_value=None)
     
-    assert data['title'] == "No Title"
-    assert data['links_found'] == 0
+    html_content = "<html><head><title>Fallback Title</title></head><body></body></html>"
+    url = "http://test.com"
+    
+    result = parse_smart(html_content, url)
+    
+    # Should use BeautifulSoup fallback
+    assert result['title'] == "Fallback Title"
+    # Other fields should be None because trafilatura failed
+    assert result['clean_text'] is None
