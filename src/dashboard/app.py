@@ -164,8 +164,8 @@ try:
                 "Name": job.name,
                 "URL": job.url,
                 "Interval": f"{job.interval_seconds}s",
-                "Active": "✅" if job.is_active else "❌",
-                "Last Run": job.last_triggered_at.strftime("%Y-%m-%d %H:%M:%S") if job.last_triggered_at else "Never"
+                "Active": "✅" if job.is_active else "❌", # type: ignore
+                "Last Run": job.last_triggered_at.strftime("%Y-%m-%d %H:%M:%S") if job.last_triggered_at else "Never" # type: ignore
             })
         
         st.dataframe(pd.DataFrame(jobs_data), use_container_width=True)
@@ -185,7 +185,7 @@ try:
                 if st.button("🔄 Toggle On/Off"):
                     job_to_toggle = db_sched.query(ScheduledJob).filter(ScheduledJob.id == selected_id).first()
                     if job_to_toggle:
-                        job_to_toggle.is_active = not job_to_toggle.is_active
+                        job_to_toggle.is_active = not job_to_toggle.is_active # type: ignore
                         db_sched.commit()
                         st.rerun()
 
