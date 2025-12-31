@@ -3,7 +3,7 @@ pytest
 pytest-mock
 
 # Monitoring
-flower
+# flower (Disabled for now, consider enabling later)
 
 # Async & Performance
 gevent

@@ -64,19 +64,20 @@ services:
       - redis
     env_file: .env
 
-  # 6. Flower Monitoring (Real-time UI)
-  flower:
-    build: .
-    container_name: scraper_flower
-    # COMMAND STRUCTURE:
-    # 1. celery [celery options]
-    # 2. flower [flower options]
-    command: celery -A src.scraper.tasks --broker=redis://redis:6379/0 flower --port=5555 --address=0.0.0.0
-    ports:
-      - "5555:5555"
-    depends_on:
-      - redis
-    env_file: .env
+  # 6. Flower Monitoring (Real-time UI) (disabled for now)
+
+  # flower:
+  #   build: .
+  #   container_name: scraper_flower
+  #   # COMMAND STRUCTURE:
+  #   # 1. celery [celery options]
+  #   # 2. flower [flower options]
+  #   command: celery -A src.scraper.tasks --broker=redis://redis:6379/0 flower --port=5555 --address=0.0.0.0
+  #   ports:
+  #     - "5555:5555"
+  #   depends_on:
+  #     - redis
+  #   env_file: .env
     
   # 7. FastAPI Backend (The "Server")
   api:
