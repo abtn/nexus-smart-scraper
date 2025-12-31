@@ -1,4 +1,5 @@
 # 🕷️ AI-Powered Enterprise Web Scraper
+(this project is in development, check back later for updates)
 
 > A self-optimizing, containerized intelligence pipeline that scrapes, analyzes, and categorizes web content using a local Large Language Model (LLM).
 
