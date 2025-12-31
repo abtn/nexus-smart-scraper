@@ -68,9 +68,12 @@ services:
   flower:
     build: .
     container_name: scraper_flower
-    command: celery -A src.scraper.tasks --broker=redis://redis:6379/0 flower --port=5555
+    # COMMAND STRUCTURE:
+    # 1. celery [celery options]
+    # 2. flower [flower options]
+    command: celery -A src.scraper.tasks --broker=redis://redis:6379/0 flower --port=5555 --address=0.0.0.0
     ports:
-      - "5556:5555"
+      - "5555:5555"
     depends_on:
       - redis
     env_file: .env
