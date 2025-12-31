@@ -42,6 +42,12 @@ class ScrapedData(Base):
     clean_text = Column(Text, nullable=True)       
     # ----------------------------------------
     
+    # --- AI ENRICHMENT ---
+    ai_tags = Column(JSON, nullable=True)     # Stores ["tag1", "tag2"]
+    ai_category = Column(String(100), nullable=True)
+    ai_urgency = Column(Integer, nullable=True) 
+    # ---------------------
+    
     # Retain this for any extra data that doesn't fit the columns
     content = Column(JSON) 
     created_at = Column(DateTime, default=datetime.now(timezone.utc))

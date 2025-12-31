@@ -12,6 +12,13 @@ class Settings:
     TIMEZONE = 'Asia/Tehran'
     DEFAULT_INTERVAL = 3600
     
+    # --- AI CONFIGURATION ---
+    # Default to container name 'ollama'
+    AI_BASE_URL = os.getenv("AI_BASE_URL", "http://ollama:11434") 
+    AI_MODEL = os.getenv("AI_MODEL", "phi3.5") 
+    AI_MAX_CONTEXT_TOKENS = 3000 
+    # ------------------------
+    
     # List of User-Agents to rotate
     USER_AGENTS = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

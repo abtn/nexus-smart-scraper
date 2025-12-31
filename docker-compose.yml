@@ -25,11 +25,13 @@ services:
     build: .
     container_name: scraper_worker
     # UPDATED COMMAND: Switched to the gevent pool
-    command: celery -A src.scraper.tasks worker --loglevel=info --pool=gevent --concurrency=50
+    command: celery -A src.scraper.tasks worker --loglevel=info --pool=gevent --concurrency=50 -E
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_started
+      ollama: # <--- NEW: Wait for Brain to wake up
         condition: service_started
     environment:
       - PYTHONPATH=/app  # <--- path
@@ -66,7 +68,7 @@ services:
   flower:
     build: .
     container_name: scraper_flower
-    command: celery -A src.scraper.tasks flower --port=5555 --broker=redis://redis:6379/0
+    command: celery -A src.scraper.tasks --broker=redis://redis:6379/0 flower --port=5555
     ports:
       - "5555:5555"
     depends_on:
@@ -89,6 +91,33 @@ services:
     env_file: .env
     volumes:
       - .:/app
-  
+  # 8. The AI Brain (Ollama) <--- NEW SERVICE
+  ollama:
+    image: ollama/ollama:latest
+    container_name: scraper_brain
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Smart Entrypoint: Starts server, waits for it, then pulls model
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull ${AI_MODEL:-phi3.5} && wait"]
+    environment:
+      - AI_MODEL=${AI_MODEL:-phi3.5}
+      # Optional: Keep model loaded in RAM for 5 mins to make subsequent requests faster
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s # Give it 1 minute of grace period before checking
+    # Uncomment below, only if you have Nvidia GPU and want to use it
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 volumes:
   postgres_data:
+  ollama_data:
