@@ -1,4 +1,3 @@
-```markdown
 # 🕷️ AI-Powered Enterprise Web Scraper
 
 > A self-optimizing, containerized intelligence pipeline that scrapes, analyzes, and categorizes web content using a local Large Language Model (LLM).
@@ -7,8 +6,6 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green)
 ![Ollama](https://img.shields.io/badge/AI-Ollama%20%2F%20Phi3.5-orange)
-
----
 
 ## 🧠 What Makes This Special?
 
@@ -46,7 +43,6 @@ graph TD
     Worker -->|Analyze Text| Brain
     Worker -->|Save Rich Data| DB
 ```
-
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -144,13 +140,4 @@ docker compose up -d
 *   **Parsing:** Trafilatura + BeautifulSoup4
 ```
 
-### 🏁 Next Steps
 
-1.  **Replace old README:** Delete the old `README.txt` and save this as `README.md`.
-2.  **Commit:**
-    ```bash
-    git add README.md
-    git rm README.txt  # If you want to remove the old text file
-    git commit -m "docs: Update README with AI architecture"
-    git push origin main
-    ```
