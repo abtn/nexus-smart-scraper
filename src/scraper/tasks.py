@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, wait_fixed
 
 from src.config import settings
 from src.scraper.compliance import is_allowed
@@ -54,6 +54,14 @@ def fetch_url(session, url):
     response.raise_for_status()
     return response.text, response.url
 
+# --- HELPER: Analyzer with Retries ---
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(10)) # Wait 10s between tries
+def safe_analyze(brain, text):
+    try:
+        return brain.analyze_article(text)
+    except Exception:
+        print("🧠 Brain is busy or timed out. Retrying...")
+        raise # Tenacity catches this and retries
 # --- CORE LOGIC ---
 @app.task(bind=True) 
 def scrape_task(self, url, job_id=None):
@@ -108,8 +116,9 @@ def scrape_task(self, url, job_id=None):
         # 🧠 AI ENRICHMENT
         if extracted_data.get('clean_text'):
             try:
+                # We wrap the brain call in a loop that handles timeouts
                 brain = Brain()
-                ai_data = brain.analyze_article(extracted_data['clean_text'])
+                ai_data = safe_analyze(brain, extracted_data['clean_text']) # type: ignore # New helper function
                 
                 if ai_data:
                     extracted_data['ai_tags'] = ai_data.get('tags')
