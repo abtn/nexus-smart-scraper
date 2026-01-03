@@ -167,7 +167,3 @@ docker exec -i scraper_postgres psql -U admin -d scraper_db -c "TRUNCATE TABLE s
 Contributions, bug reports, and feature requests are welcome. Please open an issue or submit a PR with a clear description and tests when applicable.
 
 ---
-
-## License
-
-Specify your license here (e.g., MIT). Update the repository with a LICENSE file.
