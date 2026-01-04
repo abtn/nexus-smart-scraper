@@ -1,192 +1,107 @@
 import requests
-import xml.etree.ElementTree as ET
-from urllib.parse import urljoin, urlparse
-from sqlalchemy.orm import Session
-from src.database.models import ScrapedData, Source
 import re
-from datetime import datetime, timezone
+from urllib.parse import urljoin, urlparse
+from src.config import settings
 
-class SitemapDiscovery:
+# Heuristics to categorize sitemaps
+PRIORITY_TERMS = ['news', 'en-us', 'uk', 'world', 'front-page', 'top']
+# Terms to deprioritize or skip if you only want English
+SKIP_TERMS = [
+    'gahuza', 'arabic', 'hindi', 'urdu', 'pashto', 
+    'mundo', 'brasil', 'russian', 'turkish', 'vietnamese',
+    'bengali', 'tamil', 'nepali', 'zhongwen', 'indonesia'
+]
+
+def normalize_source(url: str) -> str:
     """
-    Strategy 1: Sitemap Discovery.
-    Locates sitemap.xml via robots.txt or common paths, parses XML, 
-    and filters existing URLs.
+    Follows redirects to find the 'real' homepage.
+    e.g., 'bbc.com' -> 'https://www.bbc.com/'
     """
-
-    def __init__(self, base_domain: str, db: Session, limit: int = 100):
-        # Ensure proper schema if missing (e.g., if user passed "techcrunch.com", make it "https://techcrunch.com")
-        if not base_domain.startswith('http'):
-            base_domain = f"https://{base_domain}"
+    if not url.startswith('http'):
+        url = 'https://' + url
         
-        self.base_domain = base_domain.rstrip('/')
-        self.db = db
-        self.limit = limit  # <--- Store limit
-        self.session = requests.Session()
-        self.session.headers.update({'User-Agent': 'Nexus-Crawler/1.0'})
-        self.discovered_urls = set()
+    headers = {"User-Agent": settings.USER_AGENTS[0]}
+    try:
+        # HEAD request is fast; it just asks "Where does this go?"
+        print(f"📍 Resolving base URL for: {url}...")
+        resp = requests.head(url, headers=headers, allow_redirects=True, timeout=10)
+        final_url = resp.url.rstrip('/')
+        if final_url != url.rstrip('/'):
+            print(f"   ↳ Redirected to: {final_url}")
+        return final_url
+    except Exception as e:
+        print(f"⚠️ Could not resolve URL {url}: {e}")
+        return url
 
-    def run(self):
-        """Main execution flow."""
-        print(f"🗺️ Starting Discovery for: {self.base_domain} (Limit: {self.limit})")
-
-        # 1. Get Sitemap URLs
-        sitemap_urls = self._find_sitemaps()
+def score_sitemap(url: str) -> int:
+    """
+    Assigns a score to a sitemap URL to determine priority.
+    Higher score = Scrape first.
+    """
+    url_lower = url.lower()
+    score = 0
+    
+    # Gold Tier: Explicit News Sitemaps
+    if 'sitemap-news' in url_lower or 'news-sitemap' in url_lower:
+        score += 100
         
-        if not sitemap_urls:
-            print(f"⚠️ No sitemaps found for {self.base_domain}")
-            return []
-
-        # 2. Recursively parse all sitemaps (handles Sitemap Index files)
-        self._crawl_sitemap_stack(sitemap_urls)
-
-        print(f"🗺️ Found {len(self.discovered_urls)} raw URLs in sitemaps.")
-
-        # 3. Filter out existing URLs
-        new_urls = self._filter_existing_urls(list(self.discovered_urls))
-        
-        print(f"✅ {len(new_urls)} new URLs ready for queuing.")
-        return new_urls
-
-    def _find_sitemaps(self) -> list[str]:
-        """
-        Attempts to find sitemap URL via robots.txt or common guess.
-        """
-        sitemaps = []
-        
-        # Attempt A: Parse robots.txt
-        # Often domains are like "sub.example.com", so we check the root of the provided domain
-        parsed = urlparse(self.base_domain)
-        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-        
-        try:
-            print(f"🔍 Checking robots.txt at {robots_url}...")
-            resp = self.session.get(robots_url, timeout=10)
-            if resp.status_code == 200:
-                # Regex to find 'Sitemap: <url>'
-                matches = re.findall(r'Sitemap:\s*(.*)', resp.text, re.IGNORECASE)
-                for match in matches:
-                    sitemaps.append(match.strip())
-                print(f"🤖 Found {len(matches)} sitemaps in robots.txt")
-        except Exception as e:
-            print(f"⚠️ Failed to fetch robots.txt: {e}")
-
-        # Attempt B: Common guess if robots.txt failed or was empty
-        if not sitemaps:
-            common_paths = ['/sitemap.xml', '/sitemap_index.xml', '/sitemap.xml.gz']
-            for path in common_paths:
-                guess = f"{self.base_domain}{path}"
-                try:
-                    # Just a HEAD request to check existence
-                    if self.session.head(guess, timeout=5).status_code == 200:
-                        sitemaps.append(guess)
-                        print(f"🔍 Guessed sitemap at: {guess}")
-                        break
-                except:
-                    pass
-        
-        return list(set(sitemaps)) # Deduplicate
-
-    def _crawl_sitemap_stack(self, urls: list[str]):
-        """
-        Recursively fetches sitemaps. Handles both standard sitemaps (urls) 
-        and sitemap indexes (other sitemaps).
-        """
-        visited = set()
-        
-        # Limit recursion depth/count to avoid infinite loops or massive memory usage
-        max_sitemaps_to_process = 50 
-        processed_count = 0
-        
-        # Clone list to avoid modifying input
-        stack = list(urls)
-        
-        while stack and processed_count < max_sitemaps_to_process:
-            # --- CRITICAL CHECK: STOP IF LIMIT REACHED ---
-            if len(self.discovered_urls) >= self.limit:
-                print(f"🛑 Limit reached ({len(self.discovered_urls)} URLs). Stopping discovery.")
-                break
-            # ---------------------------------------------
-            current_url = stack.pop(0)
+    # Silver Tier: English / Main keywords
+    for term in PRIORITY_TERMS:
+        if term in url_lower:
+            score += 10
             
-            if current_url in visited:
-                continue
-            visited.add(current_url)
-            processed_count += 1
+    # Penalty Tier: Known non-English services
+    for term in SKIP_TERMS:
+        if term in url_lower:
+            score -= 1000 # Push to very bottom
+            
+    return score
 
+def fetch_sitemaps(base_url):
+    """
+    Robust discovery that prioritizes English news.
+    """
+    # 1. Ensure we have the canonical URL (e.g. www.bbc.com)
+    canonical_url = normalize_source(base_url)
+    
+    sitemaps = set()
+    headers = {"User-Agent": settings.USER_AGENTS[0]}
+
+    # 2. Try robots.txt
+    robots_url = urljoin(canonical_url, "/robots.txt")
+    print(f"🔍 Checking {robots_url}...")
+    
+    try:
+        resp = requests.get(robots_url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            found = re.findall(r'(?i)^Sitemap:\s*(.+)$', resp.text, re.MULTILINE)
+            for s in found:
+                sitemaps.add(s.strip())
+    except Exception:
+        pass
+
+    # 3. Guessing Fallbacks (if robots.txt failed or was empty)
+    common_paths = ["/sitemap.xml", "/sitemap_index.xml", "/sitemap-news.xml"]
+    if not sitemaps:
+        print("🕵️ Guessing common sitemap locations...")
+        for path in common_paths:
+            guess = urljoin(canonical_url, path)
             try:
-                # If it's gzipped, requests usually handles it automatically if headers are correct
-                resp = self.session.get(current_url, timeout=30)
-                if resp.status_code != 200:
-                    continue
-                
-                # Parse XML
-                # Remove namespaces for easier parsing using a simple hack
-                content = resp.content.decode('utf-8', errors='ignore')
-                # Simple namespace stripping via Regex to make ElementTree happy
-                content = re.sub(r' xmlns="[^"]+"', '', content, count=1)
-                
-                try:
-                    root = ET.fromstring(content)
-                except ET.ParseError:
-                    print(f"❌ Malformed XML at {current_url}")
-                    continue
+                if requests.head(guess, headers=headers, timeout=5).status_code == 200:
+                    sitemaps.add(guess)
+            except:
+                pass
 
-                # Check if this is a Sitemap Index (contains <sitemap>)
-                sitemap_tags = root.findall('sitemap')
-                if sitemap_tags:
-                    print(f"📂 Sitemap Index found at {current_url}. Found {len(sitemap_tags)} children.")
-                    for s in sitemap_tags:
-                        loc = s.find('loc')
-                        if loc is not None and loc.text:
-                            stack.append(loc.text.strip())
-                
-                # Check if this is a Urlset (contains <url>)
-                else:
-                    url_tags = root.findall('url')
-                    if url_tags:
-                        print(f"📄 Parsing {len(url_tags)} links from {current_url}")
-                    
-                        for u in reversed(url_tags):
-                            if len(self.discovered_urls) >= self.limit:
-                                break
-                            
-                            loc = u.find('loc')
-                            if loc is not None and loc.text:
-                                url_text = loc.text.strip()
-                                if url_text.startswith('http'):
-                                    self.discovered_urls.add(url_text)
-
-            except Exception as e:
-                print(f"❌ Error parsing sitemap {current_url}: {e}")
-
-    def _filter_existing_urls(self, candidate_urls: list[str]) -> list[str]:
-        """
-        Bulk check against database to avoid re-processing known URLs.
-        """
-        if not candidate_urls:
-            return []
-        
-        print("🔍 Checking database for duplicates...")
-        
-        # Split into chunks of 500 to prevent SQL variable limit errors
-        chunk_size = 500
-        new_urls = []
-        
-        for i in range(0, len(candidate_urls), chunk_size):
-            chunk = candidate_urls[i:i + chunk_size]
-            try:
-                # Query DB for URLs in this chunk
-                existing_in_db = self.db.query(ScrapedData.url)\
-                    .filter(ScrapedData.url.in_(chunk))\
-                    .all()
-                
-                existing_set = {row.url for row in existing_in_db}
-                
-                # Add only new ones
-                for url in chunk:
-                    if url not in existing_set:
-                        new_urls.append(url)
-            except Exception as e:
-                print(f"❌ Database filtering error on chunk {i}: {e}")
-        
-        return new_urls
+    # 4. SORTING & FILTERING (The Critical Fix)
+    sorted_sitemaps = sorted(list(sitemaps), key=score_sitemap, reverse=True)
+    
+    # Filter out the heavily penalized ones (score < -500) effectively skipping 'gahuza'
+    final_list = [s for s in sorted_sitemaps if score_sitemap(s) > -500]
+    
+    # Logging for debug
+    if final_list:
+        print(f"✅ Selected Top 3 Sitemaps (out of {len(sitemaps)}):")
+        for s in final_list[:3]:
+            print(f"   - {s}")
+            
+    return final_list

@@ -1,5 +1,6 @@
 import random
 import requests
+import trafilatura.sitemaps # pyright: ignore[reportMissingImports] # <--- Added for parsing XML
 from celery import Celery, chain
 from celery.schedules import crontab
 from bs4 import BeautifulSoup
@@ -15,15 +16,16 @@ from src.database.connection import SessionLocal
 from src.database.models import ScrapedData, Source, ScrapedLog, ScheduledJob, AIStatus
 
 from src.ai.client import Brain
-from src.scraper.discovery import SitemapDiscovery # <--- NEW
+# Import the prioritization helper we made
+from src.scraper.discovery import fetch_sitemaps 
 
 app = Celery('scraper', broker=settings.REDIS_URL)
 
 # --- ROUTING CONFIGURATION ---
-# This ensures Fast logic goes to 'default' and Slow logic goes to 'ai_queue'
 app.conf.task_routes = {
     'src.scraper.tasks.scrape_task': {'queue': 'default'},
     'src.scraper.tasks.enrich_task': {'queue': 'ai_queue'},
+    'src.scraper.tasks.discover_sitemap_task': {'queue': 'default'}, # Discovery is fast I/O
 }
 
 # --- HELPER: Database Logging ---
@@ -75,14 +77,6 @@ def safe_analyze(brain, text):
 # ==========================================
 @app.task(bind=True, queue='default') 
 def scrape_task(self, url, job_id=None):
-    """
-    Responsibilities:
-    1. Robots.txt check
-    2. Fetch HTML
-    3. Parse Clean Text
-    4. Save to DB with status='pending'
-    5. Return ID for the next task
-    """
     task_id = self.request.id
     print(f"👨‍🍳 Chef (Fast Worker) started: {url}")
     
@@ -117,7 +111,7 @@ def scrape_task(self, url, job_id=None):
             msg = f"Blocked by robots.txt: {url}"
             print(f"⛔ {msg}")
             log_event(db, "WARN", msg, task_id, url)
-            return None # Stop chain
+            return None 
 
         # 2. Fetch Data
         try:
@@ -126,9 +120,9 @@ def scrape_task(self, url, job_id=None):
         except Exception as fetch_err:
             msg = f"Network Error: {fetch_err}"
             log_event(db, "ERROR", msg, task_id, url)
-            return None # Stop chain
+            return None 
 
-        # 3. Parse Data (No AI here!)
+        # 3. Parse Data
         extracted_data = parse_smart(html_content, final_url)
         
         rich_content = {
@@ -140,19 +134,16 @@ def scrape_task(self, url, job_id=None):
         existing_record = db.query(ScrapedData).filter(ScrapedData.url == url).first()
         source_id_val = source.id if source else None
         
-        # Prepare basic data
         update_data = {
             "title": extracted_data.get('title'),
             "author": extracted_data.get('author'),
             "published_date": extracted_data.get('published_date'),
             "main_image": extracted_data.get('main_image'),
             "clean_text": extracted_data.get('clean_text'),
-            "summary": extracted_data.get('summary'), # This is the basic Trafilatura summary
+            "summary": extracted_data.get('summary'),
             "content": rich_content,
             "source_id": source_id_val,
-            
-            # KEY CHANGE: Reset status to PENDING so AI picks it up
-            "ai_status": AIStatus.PENDING,
+            "ai_status": AIStatus.PENDING, # Reset status
             "ai_error_log": None 
         }
 
@@ -168,11 +159,10 @@ def scrape_task(self, url, job_id=None):
             new_data = ScrapedData(url=url, **update_data)
             db.add(new_data)
             db.commit()
-            db.refresh(new_data) # Important to get the ID
+            db.refresh(new_data) 
             row_id = new_data.id
             log_event(db, "INFO", f"Created basic data for {domain}", task_id, url)
         
-        # RETURN ID so the next task (enrich_task) knows what to process
         return row_id
 
     except Exception as e:
@@ -187,15 +177,7 @@ def scrape_task(self, url, job_id=None):
 # TASK 2: THE SLOW ENRICHER (AI Brain)
 # ==========================================
 @app.task(bind=True, queue='ai_queue')
-def enrich_task(self, article_id, job_id=None): # <--- Added job_id=None
-    """
-    Responsibilities:
-    1. Load text from DB
-    2. Call Ollama (Slow)
-    3. Update DB with tags/category/urgency
-    4. Set status='completed'
-    5. Adjust Scheduler
-    """
+def enrich_task(self, article_id, job_id=None):
     if not article_id:
         return "Skipped (No ID)"
         
@@ -207,17 +189,14 @@ def enrich_task(self, article_id, job_id=None): # <--- Added job_id=None
         if not article:
             return "Article not found"
 
-        # Idempotency: If it's already done, don't waste GPU cycles
-        if article.ai_status == AIStatus.COMPLETED: # pyright: ignore[reportGeneralTypeIssues]
+        if article.ai_status == AIStatus.COMPLETED: # pyright: ignore
             return "Already Completed"
 
-        # Update status to processing
-        article.ai_status = AIStatus.PROCESSING # pyright: ignore[reportAttributeAccessIssue]
+        article.ai_status = AIStatus.PROCESSING # pyright: ignore
         db.commit()
 
         # Call the Brain
         brain = Brain()
-        # safe_analyze handles retries
         ai_data = safe_analyze(brain, article.clean_text)
 
         if ai_data:
@@ -225,20 +204,18 @@ def enrich_task(self, article_id, job_id=None): # <--- Added job_id=None
             article.ai_category = ai_data.get('category')
             article.ai_urgency = ai_data.get('urgency')
             
-            # Sanitize summary
             raw_summary = ai_data.get('summary')
             if raw_summary:
                 if isinstance(raw_summary, dict):
-                    article.summary = " ".join([str(v) for v in raw_summary.values()]) # pyright: ignore[reportAttributeAccessIssue]
+                    article.summary = " ".join([str(v) for v in raw_summary.values()]) # pyright: ignore
                 elif isinstance(raw_summary, list):
-                    article.summary = " ".join([str(s) for s in raw_summary]) # pyright: ignore[reportAttributeAccessIssue]
+                    article.summary = " ".join([str(s) for s in raw_summary]) # pyright: ignore
                 else:
-                    article.summary = str(raw_summary) # pyright: ignore[reportAttributeAccessIssue]
+                    article.summary = str(raw_summary) # pyright: ignore
 
-            article.ai_status = AIStatus.COMPLETED # pyright: ignore[reportAttributeAccessIssue]
-            article.ai_error_log = None # pyright: ignore[reportAttributeAccessIssue]
+            article.ai_status = AIStatus.COMPLETED # pyright: ignore
+            article.ai_error_log = None # pyright: ignore
             
-            # 🤖 ADAPTIVE SCHEDULING (Moved here because we need Urgency)
             if job_id and article.ai_urgency:
                 try:
                     job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
@@ -248,8 +225,8 @@ def enrich_task(self, article_id, job_id=None): # <--- Added job_id=None
                     print(f"⚠️ Scheduler Adjust Failed: {e}")
 
         else:
-            article.ai_status = AIStatus.FAILED # pyright: ignore[reportAttributeAccessIssue]
-            article.ai_error_log = "AI returned no data (Model might be hallucinating empty JSON)" # pyright: ignore[reportAttributeAccessIssue]
+            article.ai_status = AIStatus.FAILED # pyright: ignore
+            article.ai_error_log = "AI returned no data" # pyright: ignore
 
         db.commit()
         return "Enrichment Success"
@@ -258,11 +235,10 @@ def enrich_task(self, article_id, job_id=None): # <--- Added job_id=None
         db.rollback()
         print(f"🧠 Brain Error: {e}")
         try:
-            # Re-query in case session is dirty, to save the error
             err_article = db.query(ScrapedData).filter(ScrapedData.id == article_id).first()
             if err_article:
-                err_article.ai_status = AIStatus.FAILED # pyright: ignore[reportAttributeAccessIssue]
-                err_article.ai_error_log = str(e) # pyright: ignore[reportAttributeAccessIssue]
+                err_article.ai_status = AIStatus.FAILED # pyright: ignore
+                err_article.ai_error_log = str(e) # pyright: ignore
                 db.commit()
         except:
             pass
@@ -277,14 +253,10 @@ def enrich_task(self, article_id, job_id=None): # <--- Added job_id=None
 def discover_sitemap_task(self, source_id: int, limit: int = 50):
     """
     1. Load Source
-    2. Run SitemapDiscovery Strategy
-    3. Queue new URLs for scraping
+    2. Fetch Prioritized Sitemaps
+    3. Extract Links
+    4. Queue new URLs via Chain
     """
-    # Import locally to avoid circular dependencies
-    from src.scraper.tasks import scrape_task, enrich_task
-    # Import Discovery
-    from src.scraper.discovery import SitemapDiscovery 
-    
     task_id = self.request.id
     db = SessionLocal()
     
@@ -296,34 +268,56 @@ def discover_sitemap_task(self, source_id: int, limit: int = 50):
 
         print(f"🕷️ Discovery Task started for: {source.domain}")
         
-        # Run the discovery logic
-        discovery = SitemapDiscovery(source.domain, db, limit=limit) # pyright: ignore[reportArgumentType]
-        new_urls = discovery.run()
+        # 1. Use the prioritized fetcher we built in src/scraper/discovery.py
+        # It handles the www redirect and the sorting (English first)
+        base_url = f"https://{source.domain}" if not source.domain.startswith('http') else source.domain # pyright: ignore[reportGeneralTypeIssues]
+        sitemaps = fetch_sitemaps(base_url)
         
-        if not new_urls:
-            print(f"🕸️ No new URLs found for {source.domain}")
-            return "No new URLs"
+        if not sitemaps:
+            print(f"🕸️ No sitemaps found for {source.domain}")
+            return "No sitemaps"
 
-        print(f"🚀 Queuing {len(new_urls)} new articles for ingestion...")
+        # 2. Extract Links (Iterate until limit)
+        discovered_urls = set()
         
-        # Batch Dispatch
-        # We dispatch tasks individually. The 'default' queue (gevent) handles this easily.
+        for sm_url in sitemaps:
+            if len(discovered_urls) >= limit:
+                break
+            
+            print(f"📄 Parsing Sitemap: {sm_url}")
+            # Trafilatura's sitemap_search downloads and extracts links
+            links = trafilatura.sitemaps.sitemap_search(sm_url)
+            
+            if links:
+                for link in links:
+                    if len(discovered_urls) >= limit:
+                        break
+                    discovered_urls.add(link)
+
+        if not discovered_urls:
+            return "No articles found in sitemaps"
+
+        print(f"🚀 Queuing {len(discovered_urls)} new articles...")
+        
+        # 3. Batch Dispatch
         count = 0
-        for url in new_urls:
-            try:
-                # IMPORTANT: We trigger the CHAIN here (Scrape -> Enrich)
-                # Just like the dashboard does.
-                chain(
-                    scrape_task.s(url),  # pyright: ignore[reportFunctionMemberAccess]
-                    enrich_task.s() # pyright: ignore[reportFunctionMemberAccess]
-                ).apply_async()
-                
-                count += 1
-            except Exception as e:
-                print(f"⚠️ Failed to queue URL {url}: {e}")
+        for url in discovered_urls:
+            # Idempotency Check
+            exists = db.query(ScrapedData).filter(ScrapedData.url == url).first()
+            if not exists:
+                try:
+                    # Trigger the Chain (Scrape -> Enrich)
+                    workflow = chain(
+                        scrape_task.s(url),  # pyright: ignore[reportFunctionMemberAccess]
+                        enrich_task.s()  # pyright: ignore[reportFunctionMemberAccess]
+                    )
+                    workflow.apply_async()
+                    count += 1
+                except Exception as e:
+                    print(f"⚠️ Failed to queue URL {url}: {e}")
         
         # Update Source timestamp
-        source.last_crawled = datetime.now(timezone.utc) # pyright: ignore[reportAttributeAccessIssue]
+        source.last_crawled = datetime.now(timezone.utc) # pyright: ignore
         db.commit()
         
         return f"Discovered & Queued {count} URLs"
@@ -350,7 +344,6 @@ def periodic_check_task():
             if job.last_triggered_at is None:
                 should_run = True 
             else:
-                # Ensure timezone awareness
                 last_run = job.last_triggered_at.replace(tzinfo=timezone.utc) if job.last_triggered_at.tzinfo is None else job.last_triggered_at
                 delta = now - last_run
                 if delta.total_seconds() >= job.interval_seconds:
@@ -358,18 +351,12 @@ def periodic_check_task():
             
             if should_run:
                 print(f"✅ [BEAT] Triggering chain for job: {job.name}")
-                
-                # --- THE CHAIN ---
-                # 1. Scrape (Fast): Returns article_id
-                # 2. Enrich (Slow): Receives article_id as 1st arg, and job_id as kwarg
                 workflow = chain(
-                    scrape_task.s(job.url, job_id=job.id), # pyright: ignore[reportFunctionMemberAccess]
-                    enrich_task.s(job_id=job.id)  # pyright: ignore[reportFunctionMemberAccess]
+                    scrape_task.s(job.url, job_id=job.id),  # pyright: ignore[reportFunctionMemberAccess]
+                    enrich_task.s(job_id=job.id)   # pyright: ignore[reportFunctionMemberAccess]
                 )
                 workflow.apply_async()
-                # -----------------
-
-                job.last_triggered_at = now # pyright: ignore[reportAttributeAccessIssue]
+                job.last_triggered_at = now # pyright: ignore
                 tasks_dispatched += 1
         
         if tasks_dispatched > 0:
@@ -386,47 +373,13 @@ def periodic_check_task():
         
 # --- HELPER FUNCTION (Scheduler) ---
 def adjust_schedule(db, job, urgency, has_new_content):
-    """
-    Adjusts the interval_seconds based on AI urgency.
-    """
     current_interval = job.interval_seconds
-
-    # 1. FAST PATH: Python Logic (Deterministic & Safe)
     if has_new_content:
-        if urgency >= 8:
-            # Breaking news: Check every 5 minutes
-            new_interval = 300 
-        elif urgency >= 5:
-            # Important: Check every 30 mins
-            new_interval = 1800
-        else:
-            # Evergreen: Default to 1 hour, or slow down slightly
-            new_interval = max(3600, int(current_interval * 0.95))
+        if urgency >= 8: new_interval = 300 
+        elif urgency >= 5: new_interval = 1800
+        else: new_interval = max(3600, int(current_interval * 0.95))
     else:
-        # No content: Back off exponentially
         new_interval = min(86400, int(current_interval * 1.5))
-
-    # 2. SMART PATH (Future Feature): Local LLM Decision
-    # Uncomment this block when you want to enable "Deep Thinking" scheduling
-    """
-    try:
-        from src.ai.client import Brain
-        brain = Brain()
-        prompt = f"Job: {job.name}, Urgency: {urgency}/10. Current interval: {current_interval}s. Suggest new interval in seconds (int only)."
-        # We use think_schedule (Local LLM) to save API credits
-        decision = brain.think_schedule(prompt)
-        if decision:
-            # Simple cleanup to find numbers in response
-            import re
-            numbers = re.findall(r'\d+', decision)
-            if numbers:
-                suggested = int(numbers[0])
-                # Sanity check: don't go below 1 min or above 2 days
-                if 60 <= suggested <= 172800:
-                    new_interval = suggested
-    except Exception as e:
-        print(f"⚠️ Smart Scheduler Error: {e}")
-    """
         
     job.interval_seconds = int(new_interval)
     print(f"⚖️ Adaptive Scheduler: '{job.name}' urgency={urgency} -> interval={new_interval}s")
