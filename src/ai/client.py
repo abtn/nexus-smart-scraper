@@ -6,8 +6,9 @@ from src.config import settings
 
 class Brain:
     def __init__(self):
-        # Define the priority order
+        # Define the priority order (Waterfall)
         self.providers = [
+            ("avalai", self._think_avalai),       # <--- New Provider added at top
             ("cloudflare", self._think_cloudflare),
             ("cohere", self._think_cohere),
             ("openrouter", self._think_openrouter),
@@ -53,10 +54,8 @@ class Brain:
         # --- THE WATERFALL LOOP ---
         for provider_name, strategy_func in self.providers:
             try:
-                # 🛡️ RATE LIMIT GUARD: 4 Second Wait
-                # This ensures we respect Cohere's 20 req/min (1 per 3s)
-                # and prevents 429 errors on free tiers.
-                time.sleep(4) 
+                # 🛡️ RATE LIMIT GUARD
+                time.sleep(2) # Short wait is usually fine for paid/trial APIs
                 
                 print(f"🧠 Brain: Trying provider '{provider_name}'...")
                 
@@ -71,21 +70,54 @@ class Brain:
                         return cleaned_data
                     else:
                         print(f"⚠️ Brain: '{provider_name}' returned invalid JSON.")
-                        # Continue to next provider if JSON was bad
                         
             except Exception as e:
-                print(f"❌ Brain: '{provider_name}' failed: {e}")
-                # Continue to next provider
+                # Log error but don't crash; try next provider
+                # print(f"❌ Brain: '{provider_name}' failed: {e}") 
+                pass # Silent fail to keep logs clean, or use print above for debug
         
         print("🔥 Brain: All providers failed.")
         return None
 
     # --- PROVIDER STRATEGIES ---
 
+    def _think_avalai(self, user_prompt, system_prompt):
+        if not settings.AVALAI_API_KEY:
+            raise ValueError("Missing AvalAI API Key")
+
+        headers = {
+            "Authorization": f"Bearer {settings.AVALAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        # FIX: Merge System Prompt into User Prompt
+        # The model rejects {"role": "system"}, so we combine them.
+        combined_content = f"INSTRUCTIONS:\n{system_prompt}\n\nINPUT TEXT:\n{user_prompt}"
+        payload = {
+            "model": settings.AVALAI_MODEL,
+            "messages": [
+                {"role": "user", "content": combined_content}
+            ],
+            "temperature": 0.3
+        }
+
+        try:
+            resp = requests.post(settings.AVALAI_BASE_URL, headers=headers, json=payload, timeout=30)
+            
+            # --- DEBUGGING BLOCK ---
+            if resp.status_code != 200:
+                print(f"❌ AvalAI Error {resp.status_code}: {resp.text}")
+            # -----------------------
+            
+            resp.raise_for_status()
+            return resp.json()['choices'][0]['message']['content']
+            
+        except Exception as e:
+            # Pass the specific error up so it appears in the logs
+            raise Exception(f"AvalAI Request Failed: {e}")
+
     def _think_cloudflare(self, user_prompt, system_prompt):
         if not settings.CF_ACCOUNT_ID or not settings.CF_API_TOKEN:
             raise ValueError("Missing Cloudflare Credentials")
-            
         url = f"https://api.cloudflare.com/client/v4/accounts/{settings.CF_ACCOUNT_ID}/ai/run/{settings.CF_MODEL}"
         headers = {"Authorization": f"Bearer {settings.CF_API_TOKEN}"}
         payload = {
@@ -94,15 +126,13 @@ class Brain:
                 {"role": "user", "content": user_prompt}
             ]
         }
-        # Short timeout because we want to fail fast and try the next one
-        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
         resp.raise_for_status()
         return resp.json()['result']['response']
 
     def _think_cohere(self, user_prompt, system_prompt):
         if not settings.COHERE_API_KEY:
             raise ValueError("Missing Cohere API Key")
-
         headers = {
             "Authorization": f"Bearer {settings.COHERE_API_KEY}",
             "Content-Type": "application/json",
@@ -122,7 +152,6 @@ class Brain:
     def _think_openrouter(self, user_prompt, system_prompt):
         if not settings.OPENROUTER_API_KEY:
             raise ValueError("Missing OpenRouter API Key")
-
         headers = {
             "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
@@ -141,12 +170,10 @@ class Brain:
         return resp.json()['choices'][0]['message']['content']
 
     def _think_ollama(self, user_prompt, system_prompt):
-        # Health check just for local
         try:
             requests.get(f"{settings.AI_BASE_URL}/", timeout=1)
         except:
             raise ConnectionError("Ollama Service not running")
-
         payload = {
             "model": settings.AI_MODEL,
             "prompt": user_prompt,
@@ -155,8 +182,6 @@ class Brain:
             "format": "json"
         }
         if system_prompt: payload["system"] = system_prompt
-
-        # Longer timeout for local inference
         resp = requests.post(f"{settings.AI_BASE_URL}/api/generate", json=payload, timeout=120)
         resp.raise_for_status()
         return resp.json().get('response', '')

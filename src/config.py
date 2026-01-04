@@ -16,20 +16,25 @@ class Settings:
    # --- AI STRATEGY ---
     AI_MAX_CONTEXT_TOKENS = 3000
 
-    # 1. CLOUDFLARE (Priority #1)
+    # --- 1. AVALAI (New - High Priority) ---
+    AVALAI_API_KEY = os.getenv("AVALAI_API_KEY")
+    AVALAI_BASE_URL = os.getenv("AVALAI_BASE_URL", "https://api.avalai.ir/v1/chat/completions")
+    AVALAI_MODEL = os.getenv("AVALAI_MODEL", "gemma-3n-e2b-it")
+
+    # --- 2. CLOUDFLARE ---
     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
     CF_API_TOKEN = os.getenv("CF_API_TOKEN")
     CF_MODEL = os.getenv("CF_MODEL", "@cf/meta/llama-3-8b-instruct")
 
-    # 2. COHERE (Priority #2)
+    # --- 3. COHERE ---
     COHERE_API_KEY = os.getenv("COHERE_API_KEY")
     COHERE_MODEL = os.getenv("COHERE_MODEL", "command-r")
 
-    # 3. OPENROUTER (Priority #3)
+    # --- 4. OPENROUTER ---
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
     OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "mistralai/mistral-small-3.1-24b-instruct:free")
 
-    # 4. LOCAL OLLAMA (Priority #4 - Fallback)
+    # --- 5. LOCAL OLLAMA ---
     AI_BASE_URL = os.getenv("AI_BASE_URL", "http://ollama:11434") 
     AI_MODEL = os.getenv("AI_MODEL", "phi3.5") 
     

@@ -471,7 +471,7 @@ if not df.empty:
         border_col = "#991b1b" if u_score >= 8 else "#eab308" if u_score >= 5 else "#10b981"
         
         summary_text = row['summary'] if row['summary'] else "No summary available."
-        if len(summary_text) > 150: summary_text = summary_text[:150] + "..."
+       # if len(summary_text) > 150: summary_text = summary_text[:150] + "..."
         
         tags_html = "".join([f'<span class="tag-pill">#{t}</span>' for t in row['ai_tags'][:3]]) 
         
