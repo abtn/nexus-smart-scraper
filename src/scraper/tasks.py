@@ -12,10 +12,10 @@ from src.config import settings
 from src.scraper.compliance import is_allowed
 from src.scraper.parsers import parse_smart
 from src.database.connection import SessionLocal
-# ADDED: AIStatus import
 from src.database.models import ScrapedData, Source, ScrapedLog, ScheduledJob, AIStatus
 
 from src.ai.client import Brain
+from src.scraper.discovery import SitemapDiscovery # <--- NEW
 
 app = Celery('scraper', broker=settings.REDIS_URL)
 
@@ -270,6 +270,70 @@ def enrich_task(self, article_id, job_id=None): # <--- Added job_id=None
     finally:
         db.close()
 
+# ==========================================
+# TASK 3: THE CRAWLER (Discovery)
+# ==========================================
+@app.task(bind=True, queue='default')
+def discover_sitemap_task(self, source_id: int, limit: int = 50):
+    """
+    1. Load Source
+    2. Run SitemapDiscovery Strategy
+    3. Queue new URLs for scraping
+    """
+    # Import locally to avoid circular dependencies
+    from src.scraper.tasks import scrape_task, enrich_task
+    # Import Discovery
+    from src.scraper.discovery import SitemapDiscovery 
+    
+    task_id = self.request.id
+    db = SessionLocal()
+    
+    try:
+        source = db.query(Source).filter(Source.id == source_id).first()
+        if not source:
+            print(f"❌ Discovery Error: Source ID {source_id} not found.")
+            return "Source Not Found"
+
+        print(f"🕷️ Discovery Task started for: {source.domain}")
+        
+        # Run the discovery logic
+        discovery = SitemapDiscovery(source.domain, db, limit=limit) # pyright: ignore[reportArgumentType]
+        new_urls = discovery.run()
+        
+        if not new_urls:
+            print(f"🕸️ No new URLs found for {source.domain}")
+            return "No new URLs"
+
+        print(f"🚀 Queuing {len(new_urls)} new articles for ingestion...")
+        
+        # Batch Dispatch
+        # We dispatch tasks individually. The 'default' queue (gevent) handles this easily.
+        count = 0
+        for url in new_urls:
+            try:
+                # IMPORTANT: We trigger the CHAIN here (Scrape -> Enrich)
+                # Just like the dashboard does.
+                chain(
+                    scrape_task.s(url),  # pyright: ignore[reportFunctionMemberAccess]
+                    enrich_task.s() # pyright: ignore[reportFunctionMemberAccess]
+                ).apply_async()
+                
+                count += 1
+            except Exception as e:
+                print(f"⚠️ Failed to queue URL {url}: {e}")
+        
+        # Update Source timestamp
+        source.last_crawled = datetime.now(timezone.utc) # pyright: ignore[reportAttributeAccessIssue]
+        db.commit()
+        
+        return f"Discovered & Queued {count} URLs"
+
+    except Exception as e:
+        db.rollback()
+        print(f"🔥 Discovery Fire: {e}")
+        return f"Discovery Error: {e}"
+    finally:
+        db.close()
 
 # --- SCHEDULER LOGIC ---
 @app.task

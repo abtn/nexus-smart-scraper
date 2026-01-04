@@ -4,14 +4,15 @@ import plotly.express as px
 from sqlalchemy import create_engine
 from collections import Counter
 import ast # Used to safely convert string representations of lists (e.g. "['Tag1', 'Tag2']") back into Python lists
-
+from datetime import datetime 
 # --- Pydantic Imports for Validation ---
 from pydantic import TypeAdapter, HttpUrl, ValidationError
 
 # --- Project Imports ---
 from src.config import settings
 from src.database.connection import SessionLocal
-from src.database.models import ScheduledJob
+from src.database.models import ScheduledJob, Source
+from urllib.parse import urlparse
 
 # ==========================================
 # 1. PAGE CONFIGURATION & STYLING
@@ -97,7 +98,6 @@ engine = get_engine()
 
 @st.cache_data(ttl=5) # Cache data for 5 seconds
 def load_data():
-    
     try:
         # We now fetch ai_status and ai_error_log
         query = """
@@ -138,7 +138,7 @@ if st.button("🔄 Refresh Data"):
     st.rerun()
 
 # ==========================================
-# 3. SIDEBAR: CONTROL PANEL (Scraper & Scheduler)
+# 3. SIDEBAR: CONTROL PANEL
 # ==========================================
 with st.sidebar:
     st.header("⚙️ Control Panel")
@@ -149,11 +149,9 @@ with st.sidebar:
         
         if st.button("Start Scraping"):
             if url_input:
-                # --- UPDATED IMPORTS FOR CHAINING ---
                 from celery import chain
                 from src.scraper.tasks import scrape_task, enrich_task
                 
-                # --- Pydantic Validation Logic ---
                 url_adapter = TypeAdapter(HttpUrl)
                 urls = url_input.strip().split('\n')
                 
@@ -165,20 +163,15 @@ with st.sidebar:
                     if not url_str: continue
                     
                     try:
-                        # Validate
                         url_adapter.validate_python(url_str)
-                        
-                        # --- UPDATED: TRIGGER CHAIN ---
-                        # 1. scrape_task(url) runs on 'default' queue (Fast)
-                        # 2. Output (id) is passed to enrich_task() on 'ai_queue' (Slow)
-                        chain(scrape_task.s(url_str), enrich_task.s()).apply_async() # pyright: ignore[reportFunctionMemberAccess]
-                        
+                        # Chain: Scrape (Fast) -> Enrich (Slow)
+                        chain(scrape_task.s(url_str), enrich_task.s()).apply_async() # type: ignore
                         valid_count += 1
                     except ValidationError:
                         invalid_urls.append(url_str)
                 
                 if valid_count > 0:
-                    st.success(f"Queued {valid_count} tasks (Ingest -> Enrichment)!")
+                    st.success(f"Queued {valid_count} tasks!")
                 if invalid_urls:
                     st.error(f"Invalid URLs: {len(invalid_urls)}")
             else:
@@ -189,7 +182,6 @@ with st.sidebar:
     # --- PART B: SCHEDULER MANAGEMENT ---
     st.subheader("🕒 Manage Schedules")
     
-    # 1. Add New Schedule
     with st.form("new_schedule"):
         s_name = st.text_input("Name", placeholder="e.g. Daily Tech News")
         s_url = st.text_input("URL", placeholder="https://example.com")
@@ -209,7 +201,7 @@ with st.sidebar:
                 finally:
                     db_add.close()
     
-    # 2. List & Edit Schedules
+    # List & Edit Schedules
     db_sched = SessionLocal()
     try:
         jobs = db_sched.query(ScheduledJob).order_by(ScheduledJob.created_at.desc()).all()
@@ -220,12 +212,10 @@ with st.sidebar:
             
             if sel_job != "-- Select --":
                 jid = job_opts[sel_job]
-                # FIX: explicit generator
                 jobj = next(j for j in jobs if j.id == jid) # type: ignore
                 
                 c1, c2 = st.columns(2)
                 if c1.button("Toggle Active", key=f"tog_{jid}"):
-                    # FIX: Explicit boolean cast or ignore to satisfy static analysis
                     jobj.is_active = not bool(jobj.is_active)  # type: ignore
                     db_sched.commit()
                     st.rerun()
@@ -235,18 +225,87 @@ with st.sidebar:
                     db_sched.commit()
                     st.rerun()
                 
-                # FIX: Explicit boolean cast
                 is_active_status = bool(jobj.is_active)
                 st.caption(f"Status: {'✅ Active' if is_active_status else '❌ Inactive'}")
                 st.caption(f"Interval: {jobj.interval_seconds}s")
-                
-                
     finally:
         db_sched.close()
 
-    # ==========================================
-    # PART C: SYSTEM MAINTENANCE (Global)
-    # ==========================================
+    st.divider()
+
+    # --- PART C: CRAWLER CONTROL (NEW) ---
+    st.subheader("🕷️ Smart Crawler")
+
+    with st.expander("Sitemap Discovery", expanded=False):
+        st.caption("Auto-discover ALL URLs from a domain's sitemap.xml.")
+        
+        crawl_db = SessionLocal()
+        try:
+            all_sources = crawl_db.query(Source).all()
+            source_opts = {f"{s.domain} (ID: {s.id})": s.id for s in all_sources}
+            
+            # Add "Custom" option to allow typing a new domain
+            source_opts["-- Or Create New Domain --"] = "new" # pyright: ignore[reportArgumentType]
+            
+            # Reverse map for selectbox
+            options_list = list(source_opts.keys())
+            selected_option = st.selectbox("Select Domain:", options_list)
+            
+            new_domain_input = None
+            if source_opts[selected_option] == "new": # pyright: ignore[reportGeneralTypeIssues]
+                new_domain_input = st.text_input("New Domain", placeholder="https://techcrunch.com")
+            # NEW: Limit Slider
+            limit_val = st.slider("Max Articles to Queue:", 10, 500, 50)
+            
+            if st.button("🚀 Start Discovery", key="btn_discover"):
+                source_to_use = None
+                
+                # 1. Determine Source
+                if source_opts[selected_option] != "new": # pyright: ignore[reportGeneralTypeIssues]
+                    source_id = source_opts[selected_option]
+                    source_to_use = crawl_db.query(Source).get(source_id)
+                elif new_domain_input:
+                    # Validate & Create
+                    try:
+                        adapter = TypeAdapter(HttpUrl)
+                        adapter.validate_python(new_domain_input)
+                        
+                        parsed = urlparse(new_domain_input)
+                        domain = parsed.netloc
+                        
+                        # Check existence
+                        existing = crawl_db.query(Source).filter(Source.domain == domain).first()
+                        if existing:
+                            source_to_use = existing
+                        else:
+                            # Create new
+                            source_to_use = Source(
+                                domain=domain,
+                                robots_url=f"{parsed.scheme}://{domain}/robots.txt",
+                                last_crawled=datetime.now()
+                            )
+                            crawl_db.add(source_to_use)
+                            crawl_db.commit()
+                            crawl_db.refresh(source_to_use)
+                            st.success(f"Created new source: {domain}")
+                            
+                    except ValidationError:
+                        st.error("Invalid URL format.")
+                    except Exception as e:
+                        st.error(f"Error creating source: {e}")
+
+                # 2. Trigger Task
+                if source_to_use:
+                    from src.scraper.tasks import discover_sitemap_task
+                    discover_sitemap_task.apply_async(args=[source_to_use.id, limit_val]) # pyright: ignore[reportFunctionMemberAccess]
+                    st.toast(f"Discovery started (Limit: {limit_val})", icon="🕷️")
+                else:
+                    if not new_domain_input:
+                         st.warning("Please select or enter a valid domain.")
+        finally:
+            crawl_db.close()
+
+    # --- PART D: SYSTEM MAINTENANCE ---
     st.divider()
     st.subheader("🚑 System Maintenance")
 
@@ -254,7 +313,6 @@ with st.sidebar:
         st.caption("Push 'Pending' items from DB back into the AI Queue.")
 
         # Check for pending items
-        # We use the global 'engine' object here
         pending_items = pd.read_sql("SELECT id, url FROM scraped_data WHERE ai_status = 'pending'", engine)
 
         st.info(f"**{len(pending_items)}** items waiting in Database.")
@@ -271,14 +329,12 @@ with st.sidebar:
         
                 for index, row in pending_items.iterrows():
                     # Re-dispatch to AI Worker
-                    enrich_task.s(row['id']).apply_async() # pyright: ignore[reportFunctionMemberAccess]
+                    enrich_task.s(row['id']).apply_async() # type: ignore
                     
                     count += 1
-                    # Update progress bar
                     my_bar.progress(count / total, text=f"Queued {count}/{total}")
         
                 st.success(f"Successfully re-queued {count} tasks!")
-                # Wait 1s then rerun so user sees the success message
                 import time
                 time.sleep(1)
                 st.rerun()
@@ -290,17 +346,15 @@ df = load_data()
 
 if not df.empty:
     
-    # --- NEW: PIPELINE STATUS ---
+    # --- PIPELINE STATUS ---
     st.header("📡 Pipeline Status")
     
-    # Calculate Status Counts
     status_counts = df['ai_status'].value_counts()
     s_pending = status_counts.get('pending', 0)
     s_processing = status_counts.get('processing', 0)
     s_completed = status_counts.get('completed', 0)
     s_failed = status_counts.get('failed', 0)
     
-    # Display Status Metrics
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("⏳ Pending", s_pending)
     col2.metric("🧠 Processing", s_processing, delta_color="off")
@@ -309,11 +363,9 @@ if not df.empty:
     
     st.divider()
 
-    # --- FILTER DATA FOR ANALYTICS ---
-    # We only want to calculate averages/charts on COMPLETED items
+    # --- ANALYTICS (Completed Only) ---
     completed_df = df[df['ai_status'] == 'completed']
 
-    # --- High Level Metrics (AI Insights) ---
     st.header("📊 AI Insights")
     
     if not completed_df.empty:
@@ -321,7 +373,6 @@ if not df.empty:
         
         total_arts = len(completed_df)
         avg_urg = completed_df['ai_urgency'].mean()
-        # Handle empty mode if no categories exist yet
         top_cat = completed_df['ai_category'].mode()[0] if not completed_df['ai_category'].mode().empty else "N/A"
         
         m1.metric("Analyzed Articles", total_arts)
@@ -330,7 +381,6 @@ if not df.empty:
         
         st.divider()
         
-        # --- Plotly Charts ---
         c1, c2 = st.columns(2)
         
         with c1:
@@ -348,9 +398,7 @@ if not df.empty:
                 fig_hist.update_layout(bargap=0.1)
                 st.plotly_chart(fig_hist, width="stretch")
                 
-        # --- Trending Tags Bar Chart ---
         st.subheader("🏷️ Top 15 Trending Tags")
-        # Flatten the list of lists: [['A','B'], ['A','C']] -> ['A','B','A','C']
         all_tags = [tag for tags in completed_df['ai_tags'] for tag in tags]
         
         if all_tags:
@@ -364,15 +412,12 @@ if not df.empty:
         st.info("Waiting for AI to complete analysis on pending items...")
 
     # ==========================================
-    # 5. VISUAL NEWS FEED (Cards)
+    # 5. VISUAL NEWS FEED
     # ==========================================
     st.header("📰 Intelligence Feed")
     
-    # Filter Slider
     min_urg = st.slider("Filter by Urgency:", 1, 10, 1)
     
-    # Filter Logic: Show Pending/Processing regardless of urgency, 
-    # but filter Completed items by urgency score.
     filtered_df = df[
         (df['ai_status'] != 'completed') | 
         (df['ai_urgency'] >= min_urg)
@@ -380,14 +425,12 @@ if not df.empty:
     
     st.caption(f"Showing {len(filtered_df)} articles")
     
-    # Grid Layout (3 Columns)
     cols = st.columns(3)
     
     for i, (_, row) in enumerate(filtered_df.iterrows()):
         
-        # --- A. LOGIC FOR PENDING / PROCESSING / FAILED ---
+        # --- A. PENDING / PROCESSING / FAILED ---
         if row['ai_status'] != 'completed':
-            # Styling for different states
             if row['ai_status'] == 'processing':
                 status_color = "#3b82f6" # Blue
                 status_icon = "🧠"
@@ -420,20 +463,16 @@ if not df.empty:
             """
             with cols[i % 3]:
                 st.markdown(card_html, unsafe_allow_html=True)
-            continue # Move to next item
+            continue
 
-        # --- B. LOGIC FOR COMPLETED ITEMS (Original Rich Card) ---
-        
-        # Determine styling based on urgency
+        # --- B. COMPLETED ITEMS ---
         u_score = row['ai_urgency']
         u_class = "urgent-high" if u_score >= 8 else "urgent-medium" if u_score >= 5 else "urgent-low"
         border_col = "#991b1b" if u_score >= 8 else "#eab308" if u_score >= 5 else "#10b981"
         
-        # Safe Summary Truncation
         summary_text = row['summary'] if row['summary'] else "No summary available."
         if len(summary_text) > 150: summary_text = summary_text[:150] + "..."
         
-        # Tags HTML Generation
         tags_html = "".join([f'<span class="tag-pill">#{t}</span>' for t in row['ai_tags'][:3]]) 
         
         card_html = f"""

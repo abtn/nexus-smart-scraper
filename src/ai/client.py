@@ -1,5 +1,6 @@
 import requests
 import json
+import time # <--- NEW IMPORT
 from tenacity import retry, stop_after_attempt, wait_exponential
 from src.config import settings
 
@@ -78,10 +79,20 @@ class Brain:
             # Optional: Some models support response_format={"type": "json_object"}
             # But for broader compatibility with free models, we rely on the prompt.
         }
-
+        
+        # 1. RATE LIMITING: Sleep 2 seconds before every request
+        # This prevents hitting the API too hard in a loop
+        print("⏳ API Pacing: Waiting 4s...")
+        time.sleep(4) # Adjust as needed based on rate limits
+        
         try:
             resp = requests.post(self.api_url, headers=headers, json=payload, timeout=60)
-            resp.raise_for_status()
+            if resp.status_code == 429:
+                print("⏳ Hit API Rate Limit (429). Waiting 10s...")
+                time.sleep(10) # Wait and try one last time
+                resp = requests.post(self.api_url, headers=headers, json=payload, timeout=60)
+            
+            resp.raise_for_status() # Raise error for other codes (500, etc)
             data = resp.json()
             # Extract content from OpenAI format response
             return data['choices'][0]['message']['content']
