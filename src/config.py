@@ -13,15 +13,25 @@ class Settings:
     TIMEZONE = 'Asia/Tehran'
     DEFAULT_INTERVAL = 3600
 
-    # --- AI CONFIGURATION (LOCAL OLLAMA) ---
-    AI_BASE_URL = os.getenv("AI_BASE_URL", "http://ollama:11434")
-    AI_MODEL = os.getenv("AI_MODEL", "phi3.5")
+   # --- AI STRATEGY ---
     AI_MAX_CONTEXT_TOKENS = 3000
-    
-    # --- AI CONFIGURATION (OPENROUTER API) ---
+
+    # 1. CLOUDFLARE (Priority #1)
+    CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
+    CF_MODEL = os.getenv("CF_MODEL", "@cf/meta/llama-3-8b-instruct")
+
+    # 2. COHERE (Priority #2)
+    COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+    COHERE_MODEL = os.getenv("COHERE_MODEL", "command-r")
+
+    # 3. OPENROUTER (Priority #3)
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "mistralai/mistral-small-3.1-24b-instruct:free") 
-    OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "mistralai/mistral-small-3.1-24b-instruct:free")
+
+    # 4. LOCAL OLLAMA (Priority #4 - Fallback)
+    AI_BASE_URL = os.getenv("AI_BASE_URL", "http://ollama:11434") 
+    AI_MODEL = os.getenv("AI_MODEL", "phi3.5") 
     
     # List of User-Agents
     USER_AGENTS = [
