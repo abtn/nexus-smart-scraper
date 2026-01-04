@@ -302,78 +302,79 @@ with st.sidebar:
 
     st.divider()
 
-    # --- PART C: CRAWLER CONTROL (NEW) ---
+    # --- PART C: CRAWLER CONTROL ---
     st.subheader("🕷️ Smart Crawler")
 
     with st.expander("Sitemap Discovery", expanded=False):
-        st.caption("Auto-discover ALL URLs from a domain's sitemap.xml.")
+        st.caption("Auto-discover URLs from a domain's sitemap.xml.")
         
         crawl_db = SessionLocal()
         try:
-            all_sources = crawl_db.query(Source).all()
-            source_opts = {f"{s.domain} (ID: {s.id})": s.id for s in all_sources}
+            # Mode Selection
+            discovery_mode = st.radio("Target:", ["Existing Source", "New Domain"], horizontal=True, label_visibility="collapsed")
             
-            # Add "Custom" option to allow typing a new domain
-            source_opts["-- Or Create New Domain --"] = "new" # pyright: ignore[reportArgumentType]
+            target_source_id = None
+            new_domain_url = None
             
-            # Reverse map for selectbox
-            options_list = list(source_opts.keys())
-            selected_option = st.selectbox("Select Domain:", options_list)
-            
-            new_domain_input = None
-            if source_opts[selected_option] == "new": # pyright: ignore[reportGeneralTypeIssues]
-                new_domain_input = st.text_input("New Domain", placeholder="https://techcrunch.com")
-            # NEW: Limit Slider
+            if discovery_mode == "Existing Source":
+                all_sources = crawl_db.query(Source).all()
+                if not all_sources:
+                    st.info("No existing sources found.")
+                else:
+                    source_opts = {f"{s.domain} (ID: {s.id})": s.id for s in all_sources}
+                    selected_label = st.selectbox("Select Domain:", list(source_opts.keys()))
+                    if selected_label:
+                        target_source_id = source_opts[selected_label]
+            else:
+                new_domain_url = st.text_input("Enter Homepage URL:", placeholder="https://techcrunch.com")
+
+            # Limit Slider
             limit_val = st.slider("Max Articles to Queue:", 10, 500, 50)
             
             if st.button("🚀 Start Discovery", key="btn_discover"):
-                source_to_use = None
+                # Case A: Use Existing
+                if target_source_id: # pyright: ignore[reportGeneralTypeIssues]
+                    from src.scraper.tasks import discover_sitemap_task
+                    discover_sitemap_task.apply_async(args=[target_source_id, limit_val]) # pyright: ignore
+                    st.toast(f"Discovery launched for Source ID {target_source_id}!", icon="🕷️")
                 
-                # 1. Determine Source
-                if source_opts[selected_option] != "new": # pyright: ignore[reportGeneralTypeIssues]
-                    source_id = source_opts[selected_option]
-                    source_to_use = crawl_db.query(Source).get(source_id)
-                elif new_domain_input:
-                    # Validate & Create
+                # Case B: Create New & Use
+                elif new_domain_url:
                     try:
+                        # 1. Validate
                         adapter = TypeAdapter(HttpUrl)
-                        adapter.validate_python(new_domain_input)
-                        
-                        parsed = urlparse(new_domain_input)
+                        adapter.validate_python(new_domain_url)
+                        parsed = urlparse(new_domain_url)
                         domain = parsed.netloc
                         
-                        # Check existence
-                        existing = crawl_db.query(Source).filter(Source.domain == domain).first()
-                        if existing:
-                            source_to_use = existing
-                        else:
-                            # Create new
-                            source_to_use = Source(
+                        # 2. Check/Create Source
+                        source = crawl_db.query(Source).filter(Source.domain == domain).first()
+                        if not source:
+                            source = Source(
                                 domain=domain,
                                 robots_url=f"{parsed.scheme}://{domain}/robots.txt",
                                 last_crawled=datetime.now()
                             )
-                            crawl_db.add(source_to_use)
+                            crawl_db.add(source)
                             crawl_db.commit()
-                            crawl_db.refresh(source_to_use)
+                            crawl_db.refresh(source)
                             st.success(f"Created new source: {domain}")
-                            
+                        
+                        # 3. Launch Task
+                        from src.scraper.tasks import discover_sitemap_task
+                        discover_sitemap_task.apply_async(args=[source.id, limit_val]) # pyright: ignore
+                        st.toast(f"Discovery launched for {domain}!", icon="🕷️")
+                        
                     except ValidationError:
                         st.error("Invalid URL format.")
                     except Exception as e:
-                        st.error(f"Error creating source: {e}")
-
-                # 2. Trigger Task
-                if source_to_use:
-                    from src.scraper.tasks import discover_sitemap_task
-                    discover_sitemap_task.apply_async(args=[source_to_use.id, limit_val]) # pyright: ignore[reportFunctionMemberAccess]
-                    st.toast(f"Discovery started (Limit: {limit_val})", icon="🕷️")
+                        st.error(f"Error: {e}")
                 else:
-                    if not new_domain_input:
-                         st.warning("Please select or enter a valid domain.")
+                    st.warning("Please select a source or enter a URL.")
+                    
         finally:
             crawl_db.close()
-
+            
     # --- PART D: SYSTEM MAINTENANCE ---
     st.divider()
     st.subheader("🚑 System Maintenance")
