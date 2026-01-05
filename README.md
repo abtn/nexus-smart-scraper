@@ -96,7 +96,93 @@ graph TD
         Enricher -->|Persist Tags & Summaries| DB
     end
 ```
+## 🛠️ Quick Start
 
+### Prerequisites
+*   Docker & Docker Compose installed.
+*   API Keys for at least one provider (AvalAI, Cloudflare, OpenRouter, etc.).
+
+### 1. Clone & Setup
+```bash
+git clone https://github.com/abtn/nexus-smart-scraper.git
+cd nexus-smart-scraper
+touch .env
+```
+
+### 2. Configure Environment (.env)
+Paste the following into your `.env` file. You only need to fill in the keys you plan to use.
+
+```ini
+# --- INFRASTRUCTURE ---
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=adminpass
+POSTGRES_DB=scraper_db
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+REDIS_URL=redis://redis:6379/0
+
+# --- AI WATERFALL CONFIGURATION ---
+# The system tries these in order. 
+
+# 1. AvalAI (Primary)
+AVALAI_API_KEY=your_avalai_key
+AVALAI_MODEL=gemma-3n-e2b-it
+
+# 2. Cloudflare (Secondary)
+CF_ACCOUNT_ID=your_cf_id
+CF_API_TOKEN=your_cf_token
+CF_MODEL=@cf/meta/llama-3-8b-instruct
+
+# 3. Cohere (Tertiary)
+COHERE_API_KEY=your_cohere_key
+
+# 4. OpenRouter (Quaternary)
+OPENROUTER_API_KEY=your_openrouter_key
+
+# 5. Local Ollama (Final Fallback)
+AI_BASE_URL=http://ollama:11434
+AI_MODEL=phi3.5
+```
+
+### 3. Launch
+```bash
+docker compose up --build -d
+```
+*Access the Dashboard at `http://localhost:8501`*
+
+### 4. Initialize Database
+```bash
+docker exec scraper_api alembic upgrade head
+```
+
+---
+
+## 🖥️ Using the Dashboard
+
+### 1. Smart Crawler
+*   Navigate to the **"Smart Crawler"** section in the sidebar.
+*   **Discovery Strategy:**
+    *   **Auto:** Tries sitemaps first. If that fails, it automatically switches to the Recursive Crawler.
+    *   **Force Recursive Crawl:** Ignores sitemaps and immediately starts spidering the site (depth 2).
+*   **Status:** Watch the logs in your terminal or the "Pipeline Status" metrics in the UI.
+
+### 2. Visual Feed
+*   Processed articles appear as cards with:
+    *   **Urgency Score** (1-10)
+    *   **AI Category**
+    *   **AI Summary** & **Tags**
+*   "Pending" or "Processing" items are shown in blue/gray until the AI finishes.
+
+### Running Tests
+```bash
+docker exec scraper_api pytest tests/ -v
+```
+
+### Resetting Data
+To clear the database but keep the config:
+```bash
+docker exec -i scraper_postgres psql -U admin -d scraper_db -c "TRUNCATE TABLE scraped_data, logs, sources RESTART IDENTITY CASCADE;"
+```
 ---
 
 ## 🎯 Design Philosophy
