@@ -17,7 +17,7 @@ from src.database.models import ScrapedData, Source, ScrapedLog, ScheduledJob, A
 
 from src.ai.client import Brain
 # Import the prioritization helper we made
-from src.scraper.discovery import fetch_sitemaps 
+from src.scraper.discovery import fetch_sitemaps, crawl_recursive
 
 app = Celery('scraper', broker=settings.REDIS_URL)
 
@@ -250,76 +250,79 @@ def enrich_task(self, article_id, job_id=None):
 # TASK 3: THE CRAWLER (Discovery)
 # ==========================================
 @app.task(bind=True, queue='default')
-def discover_sitemap_task(self, source_id: int, limit: int = 50):
+def discover_sitemap_task(self, source_id: int, limit: int = 50, force_crawl: bool = False):
     """
     1. Load Source
-    2. Fetch Prioritized Sitemaps
-    3. Extract Links
+    2. IF force_crawl is True -> Run Recursive Crawler
+    3. ELSE -> Try Sitemaps -> Fallback to Recursive Crawler
     4. Queue new URLs via Chain
     """
     task_id = self.request.id
     db = SessionLocal()
-    
+
     try:
         source = db.query(Source).filter(Source.id == source_id).first()
         if not source:
             print(f"❌ Discovery Error: Source ID {source_id} not found.")
             return "Source Not Found"
 
-        print(f"🕷️ Discovery Task started for: {source.domain}")
-        
-        # 1. Use the prioritized fetcher we built in src/scraper/discovery.py
-        # It handles the www redirect and the sorting (English first)
-        base_url = f"https://{source.domain}" if not source.domain.startswith('http') else source.domain # pyright: ignore[reportGeneralTypeIssues]
-        sitemaps = fetch_sitemaps(base_url)
-        
-        if not sitemaps:
-            print(f"🕸️ No sitemaps found for {source.domain}")
-            return "No sitemaps"
+        print(f"🕷️ Discovery Task started for: {source.domain} (Force Crawl: {force_crawl})")
 
-        # 2. Extract Links (Iterate until limit)
+        base_url = f"https://{source.domain}" if not source.domain.startswith('http') else source.domain # pyright: ignore[reportGeneralTypeIssues]
         discovered_urls = set()
-        
-        for sm_url in sitemaps:
-            if len(discovered_urls) >= limit:
-                break
+
+        # --- STRATEGY: FORCE CRAWL ---
+        if force_crawl:
+            print("💪 Force Mode: Skipping sitemaps, launching Recursive Crawler.")
+            discovered_urls = set(crawl_recursive(base_url, max_articles=limit, depth_limit=2))
+
+        # --- STRATEGY: AUTO (SITEMAP -> FALLBACK) ---
+        else:
+            # 1. Try Sitemap
+            sitemaps = fetch_sitemaps(base_url)
             
-            print(f"📄 Parsing Sitemap: {sm_url}")
-            # Trafilatura's sitemap_search downloads and extracts links
-            links = trafilatura.sitemaps.sitemap_search(sm_url)
-            
-            if links:
-                for link in links:
+            if sitemaps:
+                for sm_url in sitemaps:
                     if len(discovered_urls) >= limit:
                         break
-                    discovered_urls.add(link)
+                    print(f"📄 Parsing Sitemap: {sm_url}")
+                    try:
+                        links = trafilatura.sitemaps.sitemap_search(sm_url)
+                        if links:
+                            for link in links:
+                                if len(discovered_urls) >= limit: break
+                                discovered_urls.add(link)
+                    except Exception as e:
+                        print(f"⚠️ Sitemap parse error: {e}")
+
+            # 2. Fallback to Recursive if empty
+            if not discovered_urls:
+                print(f"⚠️ No sitemap links found. Switching to Recursive Crawler...")
+                discovered_urls = set(crawl_recursive(base_url, max_articles=limit, depth_limit=2))
 
         if not discovered_urls:
-            return "No articles found in sitemaps"
+            return "No articles found via Sitemap or Crawler"
 
         print(f"🚀 Queuing {len(discovered_urls)} new articles...")
-        
-        # 3. Batch Dispatch
+
+        # Batch Dispatch
         count = 0
         for url in discovered_urls:
-            # Idempotency Check
             exists = db.query(ScrapedData).filter(ScrapedData.url == url).first()
             if not exists:
                 try:
-                    # Trigger the Chain (Scrape -> Enrich)
                     workflow = chain(
-                        scrape_task.s(url),  # pyright: ignore[reportFunctionMemberAccess]
-                        enrich_task.s()  # pyright: ignore[reportFunctionMemberAccess]
+                        scrape_task.s(url), # pyright: ignore[reportFunctionMemberAccess]
+                        enrich_task.s() # pyright: ignore[reportFunctionMemberAccess]
                     )
                     workflow.apply_async()
                     count += 1
                 except Exception as e:
                     print(f"⚠️ Failed to queue URL {url}: {e}")
-        
-        # Update Source timestamp
-        source.last_crawled = datetime.now(timezone.utc) # pyright: ignore
+
+        source.last_crawled = datetime.now(timezone.utc) # pyright: ignore[reportAttributeAccessIssue]
         db.commit()
-        
+
         return f"Discovered & Queued {count} URLs"
 
     except Exception as e:

@@ -55,13 +55,14 @@ class Brain:
         for provider_name, strategy_func in self.providers:
             try:
                 # 🛡️ RATE LIMIT GUARD
-                time.sleep(2) # Short wait is usually fine for paid/trial APIs
-                
+                # Increase sleep slightly to be nicer to APIs
+                time.sleep(2) 
+
                 print(f"🧠 Brain: Trying provider '{provider_name}'...")
-                
+
                 # Execute Strategy
                 raw_result = strategy_func(user_prompt, system_prompt)
-                
+
                 # If we got a result, clean it and return
                 if raw_result:
                     cleaned_data = self._clean_json(raw_result)
@@ -70,12 +71,16 @@ class Brain:
                         return cleaned_data
                     else:
                         print(f"⚠️ Brain: '{provider_name}' returned invalid JSON.")
-                        
+
             except Exception as e:
-                # Log error but don't crash; try next provider
-                # print(f"❌ Brain: '{provider_name}' failed: {e}") 
-                pass # Silent fail to keep logs clean, or use print above for debug
-        
+                # --- NEW: Explicit Log for Fallback ---
+                print(f"🔻 Brain: '{provider_name}' failed (Error: {str(e)[:100]}...). Switching to next provider...")
+                # If it was a Rate Limit (429), maybe sleep a bit longer before next provider
+                if "429" in str(e):
+                    print("   ↳ Hit Rate Limit. Cooling down for 5s...")
+                    time.sleep(5)
+                continue 
+
         print("🔥 Brain: All providers failed.")
         return None
 

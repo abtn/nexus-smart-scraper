@@ -236,16 +236,26 @@ with st.sidebar:
     st.subheader("🕷️ Smart Crawler")
 
     with st.expander("Sitemap Discovery", expanded=False):
-        st.caption("Auto-discover URLs from a domain's sitemap.xml.")
-        
+        st.caption("Auto-discover URLs. Tries Sitemap first, falls back to Recursive Crawler.")
+
         crawl_db = SessionLocal()
         try:
-            # Mode Selection
+            # --- 1. NEW: MODE SELECTION ---
+            discovery_strategy = st.radio(
+                "Discovery Strategy:",
+                ["Auto (Sitemap → Crawl)", "Force Recursive Crawl"],
+                horizontal=True,
+                help="Auto attempts sitemaps first. Force Crawl ignores sitemaps and searches the site structure."
+            )
+            # Determine Boolean for backend
+            is_force_crawl = (discovery_strategy == "Force Recursive Crawl")
+
+            # --- 2. TARGET SELECTION ---
             discovery_mode = st.radio("Target:", ["Existing Source", "New Domain"], horizontal=True, label_visibility="collapsed")
             
             target_source_id = None
             new_domain_url = None
-            
+
             if discovery_mode == "Existing Source":
                 all_sources = crawl_db.query(Source).all()
                 if not all_sources:
@@ -258,26 +268,26 @@ with st.sidebar:
             else:
                 new_domain_url = st.text_input("Enter Homepage URL:", placeholder="https://techcrunch.com")
 
-            # Limit Slider
             limit_val = st.slider("Max Articles to Queue:", 10, 500, 50)
-            
+
+            # --- 3. EXECUTION ---
             if st.button("🚀 Start Discovery", key="btn_discover"):
                 # Case A: Use Existing
                 if target_source_id: # pyright: ignore[reportGeneralTypeIssues]
                     from src.scraper.tasks import discover_sitemap_task
-                    discover_sitemap_task.apply_async(args=[target_source_id, limit_val]) # pyright: ignore
+                    
+                    # Pass the is_force_crawl argument
+                    discover_sitemap_task.apply_async(args=[target_source_id, limit_val, is_force_crawl]) # pyright: ignore[reportFunctionMemberAccess]
                     st.toast(f"Discovery launched for Source ID {target_source_id}!", icon="🕷️")
-                
+
                 # Case B: Create New & Use
                 elif new_domain_url:
                     try:
-                        # 1. Validate
                         adapter = TypeAdapter(HttpUrl)
                         adapter.validate_python(new_domain_url)
                         parsed = urlparse(new_domain_url)
                         domain = parsed.netloc
-                        
-                        # 2. Check/Create Source
+
                         source = crawl_db.query(Source).filter(Source.domain == domain).first()
                         if not source:
                             source = Source(
@@ -289,19 +299,20 @@ with st.sidebar:
                             crawl_db.commit()
                             crawl_db.refresh(source)
                             st.success(f"Created new source: {domain}")
-                        
-                        # 3. Launch Task
+
                         from src.scraper.tasks import discover_sitemap_task
-                        discover_sitemap_task.apply_async(args=[source.id, limit_val]) # pyright: ignore
-                        st.toast(f"Discovery launched for {domain}!", icon="🕷️")
                         
+                        # Pass the is_force_crawl argument
+                        discover_sitemap_task.apply_async(args=[source.id, limit_val, is_force_crawl]) # pyright: ignore[reportFunctionMemberAccess]
+                        st.toast(f"Discovery launched for {domain}!", icon="🕷️")
+
                     except ValidationError:
                         st.error("Invalid URL format.")
                     except Exception as e:
                         st.error(f"Error: {e}")
                 else:
                     st.warning("Please select a source or enter a URL.")
-                    
+
         finally:
             crawl_db.close()
             
