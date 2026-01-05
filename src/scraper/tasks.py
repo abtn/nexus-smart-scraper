@@ -19,7 +19,7 @@ from src.ai.client import Brain
 # Import the prioritization helper we made
 from src.scraper.discovery import fetch_sitemaps, crawl_recursive
 
-import feedparser # <--- NEW
+import feedparser # pyright: ignore[reportMissingImports] # <--- NEW
 from src.database.models import JobType # <--- NEW
 
 app = Celery('scraper', broker=settings.REDIS_URL)
