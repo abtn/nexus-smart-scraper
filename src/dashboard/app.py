@@ -11,8 +11,11 @@ from pydantic import TypeAdapter, HttpUrl, ValidationError
 # --- Project Imports ---
 from src.config import settings
 from src.database.connection import SessionLocal
-from src.database.models import ScheduledJob, Source
+from src.database.models import ScheduledJob, Source, JobType
 from urllib.parse import urlparse
+
+from celery import chain
+from src.scraper.tasks import process_rss_task, discover_sitemap_task, scrape_task, enrich_task
 
 # ==========================================
 # 1. PAGE CONFIGURATION & STYLING
@@ -178,55 +181,134 @@ with st.sidebar:
                 st.warning("Enter a URL first.")
 
     st.divider()
-    # --- PART B: SCHEDULER MANAGEMENT ---
-    st.subheader("🕒 Manage Schedules")
     
+   # --- PART B: SCHEDULER MANAGEMENT ---
+    st.subheader("🕒 Smart Scheduler")
+
+    # 1. NEW SCHEDULE FORM
     with st.form("new_schedule"):
-        s_name = st.text_input("Name", placeholder="e.g. Daily Tech News")
-        s_url = st.text_input("URL", placeholder="https://example.com")
-        s_int = st.number_input("Interval (sec)", min_value=60, value=3600, step=60)
+        c1, c2 = st.columns([1, 2])
         
+        with c1:
+            # Job Type Selection
+            job_type_map = {
+                "RSS Feed": JobType.RSS,
+                "Site Discovery": JobType.DISCOVERY,
+                "Single URL": JobType.SINGLE
+            }
+            selected_type_label = st.selectbox("Job Type:", list(job_type_map.keys()))
+            selected_type = job_type_map[selected_type_label]
+
+        with c2:
+            s_name = st.text_input("Job Name", placeholder="e.g. TechCrunch Monitor")
+
+        # Dynamic Help Text & URL Input
+        if selected_type == JobType.RSS:
+            st.info("📡 Monitors an RSS XML feed for new items.")
+            s_url = st.text_input("RSS Feed URL", placeholder="https://techcrunch.com/feed/")
+        elif selected_type == JobType.DISCOVERY:
+            st.info("🕷️ Crawls a domain (Sitemap/BFS) for new content.")
+            s_url = st.text_input("Homepage URL", placeholder="https://techcrunch.com")
+        else:
+            st.info("🔗 Re-scrapes a specific URL repeatedly.")
+            s_url = st.text_input("Article URL", placeholder="https://example.com/article")
+
+        # --- NEW: Layout for Interval & Limit ---
+        c3, c4 = st.columns(2)
+        with c3:
+            s_int = st.number_input("Check Interval (seconds)", min_value=60, value=3600, step=60)
+        
+        with c4:
+            # Only show limit input for RSS and Discovery jobs
+            if selected_type in [JobType.RSS, JobType.DISCOVERY]:
+                s_limit = st.number_input("Max Items per Run", min_value=1, max_value=200, value=10)
+            else:
+                s_limit = 1 # Default for Single URL (hidden from UI)
+
         if st.form_submit_button("Create Schedule"):
             if s_name and s_url:
                 db_add = SessionLocal()
                 try:
-                    job = ScheduledJob(name=s_name, url=s_url, interval_seconds=s_int, is_active=True)
+                    # Create the Job with the LIMIT
+                    job = ScheduledJob(
+                        name=s_name, 
+                        url=s_url, 
+                        interval_seconds=s_int, 
+                        items_limit=s_limit,  # <--- Saving the limit
+                        is_active=True,
+                        job_type=selected_type
+                    )
+                    # 1. Save to DB
                     db_add.add(job)
                     db_add.commit()
-                    st.success("Saved!")
+                    db_add.refresh(job) # Get the ID
+                    
+                    # 2. IMMEDIATE TRIGGER (Kickstart)
+                    if selected_type == JobType.RSS:
+                        process_rss_task.apply_async(args=[job.url, job.id, job.items_limit]) # pyright: ignore[reportFunctionMemberAccess]
+                    
+                    elif selected_type == JobType.DISCOVERY:
+                        # Resolve Source ID logic
+                        from urllib.parse import urlparse
+                        domain = urlparse(s_url).netloc
+                        src = db_add.query(Source).filter(Source.domain == domain).first()
+                        if not src:
+                            src = Source(domain=domain, robots_url=f"https://{domain}/robots.txt")
+                            db_add.add(src)
+                            db_add.commit()
+                        
+                        discover_sitemap_task.apply_async(args=[src.id, job.items_limit, False, job.id]) # pyright: ignore[reportFunctionMemberAccess]
+
+                    else: # Single
+                        chain(
+                            scrape_task.s(job.url, job_id=job.id),
+                            enrich_task.s(job_id=job.id)
+                        ).apply_async()
+
+                    st.success(f"Created & Triggered {selected_type_label} job!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
                 finally:
                     db_add.close()
-    
-    # List & Edit Schedules
+
+    # 2. LIST EXISTING SCHEDULES
     db_sched = SessionLocal()
     try:
         jobs = db_sched.query(ScheduledJob).order_by(ScheduledJob.created_at.desc()).all()
         if jobs:
             st.write("---")
-            job_opts = {f"{j.id}. {j.name}": j.id for j in jobs}
+            # Create options with Type labels for clarity
+            job_opts = {
+                f"[{j.job_type.value.upper()}] {j.name}": j.id 
+                for j in jobs
+            }
             sel_job = st.selectbox("Select Task:", ["-- Select --"] + list(job_opts.keys()))
-            
+
             if sel_job != "-- Select --":
                 jid = job_opts[sel_job]
                 jobj = next(j for j in jobs if j.id == jid) # type: ignore
-                
+
                 c1, c2 = st.columns(2)
                 if c1.button("Toggle Active", key=f"tog_{jid}"):
-                    jobj.is_active = not bool(jobj.is_active)  # type: ignore
+                    jobj.is_active = not bool(jobj.is_active) # type: ignore
                     db_sched.commit()
                     st.rerun()
-                
+
                 if c2.button("Delete", key=f"del_{jid}", type="primary"):
                     db_sched.delete(jobj)
                     db_sched.commit()
                     st.rerun()
+
+                is_active_status = bool(jobj.is_active) # type: ignore
                 
-                is_active_status = bool(jobj.is_active)
-                st.caption(f"Status: {'✅ Active' if is_active_status else '❌ Inactive'}")
-                st.caption(f"Interval: {jobj.interval_seconds}s")
+                # --- NEW: Display the Limit in the info section ---
+                type_badge = f"🏷️ {jobj.job_type.value.upper()}" # type: ignore
+                limit_info = f" | Limit: {jobj.items_limit} items" if jobj.job_type != JobType.SINGLE else "" # type: ignore
+                
+                st.caption(f"{type_badge} | Status: {'✅ Active' if is_active_status else '❌ Inactive'}")
+                st.caption(f"Target: {jobj.url}") # type: ignore
+                st.caption(f"Interval: {jobj.interval_seconds}s{limit_info}") # type: ignore
     finally:
         db_sched.close()
 

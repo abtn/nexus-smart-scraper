@@ -40,3 +40,6 @@ plotly    # Needed for the new Charts
 # API
 fastapi
 uvicorn
+
+# RSS Feed
+feedparser

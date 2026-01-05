@@ -61,14 +61,24 @@ class ScrapedData(Base):
     
     content = Column(JSON) 
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
-    
+
+class JobType(str, enum.Enum):
+    RSS = "rss"             # Monitors an RSS feed URL
+    DISCOVERY = "discovery" # Monitors a Domain (Sitemap/BFS)
+    SINGLE = "single"       # Monitors a specific Article URL (Legacy)
+
 class ScheduledJob(Base):
     __tablename__ = 'scheduled_jobs'
-    
+
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False)
     url = Column(String, nullable=False)
-    interval_seconds = Column(Integer, default=3600) 
-    is_active = Column(Boolean, default=True)   
-    last_triggered_at = Column(DateTime, nullable=True) 
+    job_type = Column(Enum(JobType), default=JobType.SINGLE, nullable=False)
+    
+    # --- NEW COLUMN ---
+    items_limit = Column(Integer, default=10) 
+    
+    interval_seconds = Column(Integer, default=3600)
+    is_active = Column(Boolean, default=True)
+    last_triggered_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))

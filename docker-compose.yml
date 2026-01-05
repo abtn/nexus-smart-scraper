@@ -145,3 +145,5 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+    external: true # this is added for migration purposes
+    name: scrapping-project-for-abtin_ollama_data    # <--- Points to OLD AI volume

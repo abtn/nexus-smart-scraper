@@ -19,6 +19,9 @@ from src.ai.client import Brain
 # Import the prioritization helper we made
 from src.scraper.discovery import fetch_sitemaps, crawl_recursive
 
+import feedparser # <--- NEW
+from src.database.models import JobType # <--- NEW
+
 app = Celery('scraper', broker=settings.REDIS_URL)
 
 # --- ROUTING CONFIGURATION ---
@@ -119,8 +122,9 @@ def scrape_task(self, url, job_id=None):
                 html_content, final_url = fetch_url(session, url)
         except Exception as fetch_err:
             msg = f"Network Error: {fetch_err}"
+            print(f"❌ {msg}")  # <--- ADD THIS LINE to see errors in logs
             log_event(db, "ERROR", msg, task_id, url)
-            return None 
+            return None
 
         # 3. Parse Data
         extracted_data = parse_smart(html_content, final_url)
@@ -250,7 +254,7 @@ def enrich_task(self, article_id, job_id=None):
 # TASK 3: THE CRAWLER (Discovery)
 # ==========================================
 @app.task(bind=True, queue='default')
-def discover_sitemap_task(self, source_id: int, limit: int = 50, force_crawl: bool = False):
+def discover_sitemap_task(self, source_id: int, limit: int = 50, force_crawl: bool = False, job_id: int = None): # pyright: ignore[reportArgumentType]
     """
     1. Load Source
     2. IF force_crawl is True -> Run Recursive Crawler
@@ -331,9 +335,62 @@ def discover_sitemap_task(self, source_id: int, limit: int = 50, force_crawl: bo
         return f"Discovery Error: {e}"
     finally:
         db.close()
+# ==========================================
+# TASK 4: RSS READER
+# ==========================================
+@app.task(bind=True, queue='default')
+def process_rss_task(self, rss_url, job_id=None, limit=10):
+    """
+    1. Parse RSS Feed
+    2. Extract Links (Up to limit)
+    3. Chain Scrape -> Enrich for new items
+    """
+    task_id = self.request.id
+    db = SessionLocal()
+    
+    try:
+        print(f"📡 RSS Task started for: {rss_url} (Limit: {limit})")
+        
+        # 1. Fetch Feed
+        feed = feedparser.parse(rss_url)
+        
+        if feed.bozo: 
+            print(f"⚠️ RSS Feed might be malformed: {feed.bozo}")
 
+        count = 0
+        
+        # 2. Iterate Entries (Limited)
+        for entry in feed.entries[:limit]:
+            target_url = getattr(entry, 'link', None)
+            if not target_url: continue
+            
+            # 3. Check DB
+            exists = db.query(ScrapedData).filter(ScrapedData.url == target_url).first()
+            
+            if not exists:
+                try:
+                    # 4. Dispatch Chain
+                    workflow = chain(
+                        scrape_task.s(target_url, job_id=job_id), # pyright: ignore[reportFunctionMemberAccess]
+                        enrich_task.s(job_id=job_id) # pyright: ignore[reportFunctionMemberAccess]
+                    )
+                    workflow.apply_async()
+                    count += 1
+                except Exception as e:
+                    print(f"⚠️ Failed to queue RSS Item {target_url}: {e}")
+
+        return f"RSS Check Complete. Queued {count} new items."
+
+    except Exception as e:
+        print(f"🔥 RSS Task Error: {e}")
+        return "RSS Error"
+    finally:
+        db.close()
 # --- SCHEDULER LOGIC ---
-@app.task
+# ==========================================
+# UPDATE: SCHEDULER LOGIC
+# ==========================================
+@app.task(queue='default')  # <--- Added queue='default'
 def periodic_check_task():
     print("⏰ [BEAT] Checking database for active schedules...")
     db = SessionLocal()
@@ -341,27 +398,47 @@ def periodic_check_task():
         active_jobs = db.query(ScheduledJob).filter(ScheduledJob.is_active == True).all()
         now = datetime.now(timezone.utc)
         tasks_dispatched = 0
-        
+
         for job in active_jobs:
             should_run = False
             if job.last_triggered_at is None:
-                should_run = True 
+                should_run = True
             else:
                 last_run = job.last_triggered_at.replace(tzinfo=timezone.utc) if job.last_triggered_at.tzinfo is None else job.last_triggered_at
                 delta = now - last_run
                 if delta.total_seconds() >= job.interval_seconds:
                     should_run = True
-            
+
             if should_run:
-                print(f"✅ [BEAT] Triggering chain for job: {job.name}")
-                workflow = chain(
-                    scrape_task.s(job.url, job_id=job.id),  # pyright: ignore[reportFunctionMemberAccess]
-                    enrich_task.s(job_id=job.id)   # pyright: ignore[reportFunctionMemberAccess]
-                )
-                workflow.apply_async()
-                job.last_triggered_at = now # pyright: ignore
+                print(f"✅ [BEAT] Triggering {job.job_type.value} job: {job.name}")
+                
+                # --- DISPATCH STRATEGY ---
+                if job.job_type == JobType.RSS: # pyright: ignore[reportGeneralTypeIssues]
+                    process_rss_task.apply_async(args=[job.url, job.id]) # pyright: ignore[reportFunctionMemberAccess]
+                    
+                elif job.job_type == JobType.DISCOVERY: # pyright: ignore[reportGeneralTypeIssues]
+                    # RESOLVE SOURCE ID FROM URL
+                    domain = urlparse(job.url).netloc # pyright: ignore[reportCallIssue, reportArgumentType]
+                    source = db.query(Source).filter(Source.domain == domain).first()
+                    
+                    if source:
+                        # Pass job_id to the task now that we updated the signature
+                        discover_sitemap_task.apply_async(args=[source.id, 50, False, job.id]) # pyright: ignore[reportFunctionMemberAccess]
+                    else:
+                        print(f"⚠️ Job {job.id} failed: No Source found for domain {domain}")
+                        # Optional: Auto-create source here if you want to be very robust
+                    
+                else:
+                    # Default: Single URL Scrape
+                    workflow = chain(
+                        scrape_task.s(job.url, job_id=job.id), # pyright: ignore[reportFunctionMemberAccess]
+                        enrich_task.s(job_id=job.id) # pyright: ignore[reportFunctionMemberAccess]
+                    )
+                    workflow.apply_async()
+
+                job.last_triggered_at = now # pyright: ignore[reportAttributeAccessIssue]
                 tasks_dispatched += 1
-        
+
         if tasks_dispatched > 0:
             db.commit()
             return f"Dispatched {tasks_dispatched} chains."
@@ -373,7 +450,7 @@ def periodic_check_task():
         return "Error"
     finally:
         db.close()
-        
+
 # --- HELPER FUNCTION (Scheduler) ---
 def adjust_schedule(db, job, urgency, has_new_content):
     current_interval = job.interval_seconds
@@ -392,6 +469,6 @@ def adjust_schedule(db, job, urgency, has_new_content):
 app.conf.beat_schedule = {
     'dynamic-dispatcher': {
         'task': 'src.scraper.tasks.periodic_check_task',
-        'schedule': 60.0,
+        'schedule': 10.0,  # <--- CHANGED FROM 60.0 TO 10.0
     },
 }
