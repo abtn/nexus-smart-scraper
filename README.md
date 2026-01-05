@@ -1,169 +1,109 @@
-# 🕷️ Nexus — Hybrid AI Intelligence Pipeline
+# 🕸️ Nexus — Smart AI Scraper
 
-A containerized, self-optimizing web intelligence pipeline that ingests content at scale and enriches it with a Hybrid AI strategy (cloud speed + local privacy). Designed for high-throughput scraping, resilient enrichment, and easy observability.
+**Nexus** is a scalable, containerized web intelligence pipeline designed to transform unstructured web traffic into structured, analyzable data. It combines an **active discovery crawler** with a **self-healing AI analysis layer**, allowing ingestion and enrichment to continue even when APIs fail, rate limits are hit, or sitemaps are unavailable.
 
-[![CI Pipeline](https://github.com/abtn/scrapping-project-for-abtin/actions/workflows/ci.yml/badge.svg)](https://github.com/abtn/scrapping-project-for-abtin/actions/workflows/ci.yml)
+The project is built for resilience, observability, and controlled automation rather than blind scraping.
+
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Celery](https://img.shields.io/badge/Queue-Celery%20%2B%20Redis-green)
-![Hybrid AI](https://img.shields.io/badge/AI-OpenRouter%20%2F%20Ollama-purple)
+![Celery](https://img.shields.io/badge/Queues-Celery%20%2F%20Redis-green)
+![AI Waterfall](https://img.shields.io/badge/AI-Waterfall%20Redundancy-purple)
+![Docker](https://img.shields.io/badge/Deploy-Docker%20Compose-blue)
 
 ---
 
-## Overview
+## 🚀 Key Features
 
-Nexus uses a "Dual‑Brain" Fast/Slow architecture to process thousands of URLs without creating bottlenecks:
+### 1. 🧠 Self-Healing AI “Waterfall”
 
-- ⚡ Fast Ingestion (The Body): highly concurrent workers fetch HTML, respect `robots.txt`, extract and persist raw content (≈ 1s/article).
-- 🧠 Smart Enrichment (The Brain): secondary workers perform semantic enrichment through a Hybrid AI pipeline:
-  - Primary (speed): OpenRouter (Mistral/Llama) for fast summaries, tagging, and urgency scoring (≈ 2s/article).
-  - Fallback (resilience): local Ollama instance if the cloud API is unavailable or API keys fail.
+Nexus does not depend on a single AI provider. Content analysis is performed through a **priority-based fallback chain**. When a provider fails (HTTP 5xx), throttles (429), or becomes unavailable, the system automatically switches to the next option without interrupting the pipeline.
 
-This decoupled model ensures ingestion continues even when enrichment is delayed or offline.
+Current priority order:
+
+1. **AvalAI** — Primary (high throughput, low latency)
+2. **Cloudflare Workers AI** — Secondary (cost-efficient)
+3. **Cohere** — Fallback (large context handling)
+4. **OpenRouter** — Aggregated routing layer
+5. **Ollama** — Local fallback (offline / privacy-focused)
+
+This design favors continuity and controlled degradation over optimal-but-fragile performance.
 
 ---
 
-## Architecture
+### 2. 🕷️ Smart Discovery Engine (Automatic Fallback)
+
+Nexus operates as an **active crawler**, not a sitemap-dependent scraper.
+
+* **Strategy A — Passive Discovery**
+  Parses `robots.txt` and `sitemap.xml` to identify valid, recent content with minimal overhead.
+
+* **Strategy B — Active BFS Crawl**
+  If sitemaps are missing, incomplete, or intentionally empty, Nexus switches to a **recursive breadth-first crawl**.
+  The crawler:
+
+  * Differentiates navigation pages from content pages
+  * Follows internal link structures selectively
+  * Filters out advertisements, tag pages, and low-signal URLs
+
+The goal is controlled discovery, not maximum page coverage.
+
+---
+
+### 3. ⚡ High-Performance, Observable Architecture
+
+* **Concurrent Ingestion:**
+  Gevent-based workers handling dozens of simultaneous connections without blocking.
+
+* **Compliance-First Crawling:**
+  Strict `robots.txt` enforcement and configurable crawl delays.
+
+* **Operational Visibility:**
+  A Streamlit dashboard provides:
+
+  * Live crawl status
+  * Queue depth monitoring
+  * Manual triggers and overrides
+  * Visual inspection of extracted content
+
+The system is designed to be inspected, not treated as a black box.
+
+---
+
+## 🏗️ Architecture Overview
 
 ```mermaid
 graph TD
-    User([User])
-    subgraph "Docker Network"
-        Dash[Streamlit Dashboard]
-        API[FastAPI Backend]
-        DB[(PostgreSQL)]
-        Redis[(Redis Queue)]
-        
-        subgraph "Scaling Workers"
-            Scraper[⚡ Scraper Worker]
-            Enricher[🧠 AI Worker]
-        end
-        
-        BrainLocal[Ollama Service]
-        BrainCloud[OpenRouter API]
+    User([User]) -->|Control| Dash[Streamlit Dashboard]
+    
+    subgraph "Ingestion Engine"
+        Dash -->|1. Trigger| Redis[(Redis Queue)]
+        Redis -->|Queue: Default| Discovery[🕷️ Discovery Worker]
+        Discovery -->|A. Sitemap| Net((Internet))
+        Discovery -->|B. BFS Crawl| Net
+        Discovery -->|Found URLs| Redis
+        Redis -->|Queue: Default| Scraper[⚡ Scraper Worker]
+        Scraper -->|Extract HTML| DB[(PostgreSQL)]
     end
 
-    User -->|Manage Rules| Dash
-    Dash -->|Save Jobs| DB
-    Dash -->|Trigger| Redis
-    
-    Redis -->|Queue: Default| Scraper
-    Scraper -->|Fetch & Parse| Internet((Internet))
-    Scraper -->|Save Raw| DB
-    Scraper -->|Chain Task| Redis
-    
-    Redis -->|Queue: AI| Enricher
-    Enricher -->|1. Try API| BrainCloud
-    Enricher -->|2. Fallback| BrainLocal
-    Enricher -->|Save Metadata| DB
+    subgraph "Intelligence Engine"
+        Scraper -->|Chain Task| Redis
+        Redis -->|Queue: AI| Enricher[🧠 AI Worker]
+        
+        Enricher -->|Attempt 1| AvalAI[AvalAI API]
+        AvalAI -.->|Fail / 429| CF[Cloudflare AI]
+        CF -.->|Fail| Cohere[Cohere API]
+        Cohere -.->|Fail| Local[Ollama Local]
+        
+        Enricher -->|Persist Tags & Summaries| DB
+    end
 ```
 
 ---
 
-## Features
+## 🎯 Design Philosophy
 
-- High-concurrency scraping (gevent-backed) with politeness (robots.txt).
-- Celery + Redis task queues with distinct pools for IO (gevent) and CPU/API-bound work (prefork).
-- Hybrid AI enrichment: primary cloud model with automatic local fallback.
-- Streamlit dashboard for live pipeline monitoring and job scheduling.
-- Postgres-backed persistence and straightforward migrations via Alembic.
-- Container-first: Docker Compose for local dev and deployment.
+* Prefer **resilience over elegance**
+* Prefer **controlled automation over aggressive scraping**
+* Assume **external services will fail**
+* Make every critical subsystem observable and replaceable
 
----
-
-## Quick Start
-
-### Prerequisites
-- Docker & Docker Compose
-- OpenRouter API key (sign up at [openrouter.ai](https://openrouter.ai))
-
-### Clone
-```bash
-git clone https://github.com/abtn/scrapping-project-for-abtin.git
-cd scrapping-project-for-abtin
-touch .env
-```
-
-### Configure (.env)
-Populate `.env` with the following (adjust secrets and models as needed):
-
-```ini
-# Database (PostgreSQL)
-POSTGRES_USER=admin
-POSTGRES_PASSWORD=adminpass
-POSTGRES_DB=scraper_db
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
-REDIS_URL=redis://redis:6379/0
-
-# --- AI CONFIGURATION ---
-
-# 1. Primary: OpenRouter (Cloud)
-OPENROUTER_API_KEY=sk-or-v1-YOUR_KEY_HERE
-OPENROUTER_MODEL=mistralai/mistral-small-3.1-24b-instruct:free
-
-# 2. Fallback: Ollama (Local)
-AI_BASE_URL=http://ollama:11434
-AI_MODEL=phi3.5
-```
-
-### Launch
-Build and start all services:
-```bash
-docker compose up --build -d
-```
-
-### Initialize DB
-Run database migrations:
-```bash
-docker exec scraper_api alembic upgrade head
-```
-
----
-
-## Interfaces
-
-### Intelligence Dashboard
-- URL: http://localhost:8501
-- Live pipeline status (Pending → Processing → Completed)
-- Visual feed of AI summaries, urgency scores, and tags
-- Job scheduler and re-queue (rescue) operations
-
-### JSON API (OpenAPI)
-- URL: http://localhost:8000/docs
-- Example: `GET /api/v1/articles` — search and retrieve enriched articles
-
----
-
-## Development
-
-### Worker Pools & Responsibilities
-- Scraper Worker: gevent pool (50+ concurrency) — optimized for network I/O and fast ingestion.
-- AI Worker: prefork pool — optimized for CPU and external API latency.
-- Tasks are chained (Celery `chain()`) so enrichment runs only after ingestion completes.
-
-### Run Tests
-```bash
-docker exec scraper_api pytest tests/ -v
-```
-
-### Reset Data
-Clear tables while preserving configuration:
-```bash
-docker exec -i scraper_postgres psql -U admin -d scraper_db -c "TRUNCATE TABLE scraped_data, logs, sources RESTART IDENTITY CASCADE;"
-```
-
----
-
-## Operational notes
-
-- Configure the OpenRouter model and Ollama model to match available capacity and privacy requirements.
-- Monitor Redis and Postgres metrics; tune Celery concurrency to match resource limits.
-- Keep the Ollama container accessible on the internal Docker network if using local fallbacks.
-
----
-
-## Contributing
-
-Contributions, bug reports, and feature requests are welcome. Please open an issue or submit a PR with a clear description and tests when applicable.
-
----
+Nexus is intended as a foundation for long-running, production-grade web intelligence workflows—not a disposable scraping script.
