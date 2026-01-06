@@ -1,593 +1,209 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from sqlalchemy import create_engine
-from collections import Counter
-import ast # Used to safely convert string representations of lists (e.g. "['Tag1', 'Tag2']") back into Python lists
-from datetime import datetime 
-# --- Pydantic Imports for Validation ---
-from pydantic import TypeAdapter, HttpUrl, ValidationError
+import time
 
-# --- Project Imports ---
-from src.config import settings
-from src.database.connection import SessionLocal
-from src.database.models import ScheduledJob, Source, JobType
-from urllib.parse import urlparse
-
-from celery import chain
-from src.scraper.tasks import process_rss_task, discover_sitemap_task, scrape_task, enrich_task
+# Import our Logic Layer
+import src.dashboard.logic as logic
 
 # ==========================================
-# 1. PAGE CONFIGURATION & STYLING
+# 1. SETUP & STYLING
 # ==========================================
-st.set_page_config(
-    page_title="AI Scraper Dashboard", 
-    layout="wide", 
-    page_icon="🕷️"
-)
+st.set_page_config(page_title="Nexus Command", layout="wide", page_icon="🕸️")
 
-# Custom CSS for the Visual Feed (Cards, Badges, Pills)
 st.markdown("""
 <style>
-    /* Card Container */
-    .card {
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 15px;
-        margin-bottom: 20px;
+    .block-container { padding-top: 2rem; }
+    /* Hero Card Style */
+    .hero-card {
         background-color: #ffffff;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        transition: transform 0.2s, box-shadow 0.2s;
+        color: #333333;             /* FIX: Force dark text on white background */
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #ff4b4b;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-bottom: 15px;
+        height: auto;               /* FIX: Allow card to grow with text */
+        min-height: 180px;          /* Minimum height for alignment */
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        height: 100%;
-    }
-    .card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
     }
     
-    /* Category Badge (Blue) */
-    .badge-category {
-        display: inline-block;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 0.75em;
-        font-weight: 600;
-        background-color: #dbeafe;
-        color: #1e3a8a;
-        margin-right: 5px;
-    }
-    
-    /* Urgency Badge (Red/Yellow/Green dynamic) */
-    .badge-urgent {
-        display: inline-block;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 0.75em;
-        font-weight: 600;
-        color: #7f1d1d;
-        margin-left: 5px;
-    }
-    .urgent-high { background-color: #fee2e2; color: #991b1b; }
-    .urgent-medium { background-color: #fef3c7; color: #854d0e; }
-    .urgent-low { background-color: #ecfdf5; color: #065f46; }
-    
-    /* Hash Tags */
-    .tag-pill {
-        display: inline-block;
-        background-color: #f3f4f6;
-        color: #4b5563;
-        padding: 2px 8px;
-        border-radius: 6px;
-        font-size: 0.75em;
-        margin-right: 4px;
-        margin-top: 5px;
+    /* List styling */
+    .streamlit-expanderHeader {
+        background-color: #f8f9fa;
+        color: #333333;             /* Fix contrast in expanders too */
+        font-size: 0.95em;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🕷️ AI-Powered Intelligence Dashboard")
-
 # ==========================================
-# 2. DATABASE CONNECTION & DATA LOADING
-# ==========================================
-@st.cache_resource
-def get_engine():
-    return create_engine(settings.DB_URL)
-
-engine = get_engine()
-
-@st.cache_data(ttl=5) # Cache data for 5 seconds
-def load_data():
-    try:
-        # We now fetch ai_status and ai_error_log
-        query = """
-            SELECT id, url, title, created_at, 
-                   ai_category, ai_urgency, ai_tags, 
-                   summary, main_image, author,
-                   ai_status, ai_error_log
-            FROM scraped_data 
-            ORDER BY created_at DESC
-            LIMIT 50
-        """
-        df = pd.read_sql(query, engine)
-        
-        # --- Helper to parse the tags string back to list ---
-        def parse_tags(tag_str):
-            if not tag_str: return []
-            try:
-                # If it's already a list (unlikely from SQL but possible), return it
-                if isinstance(tag_str, list): return tag_str
-                # Safely evaluate string "['a', 'b']" to list ['a', 'b']
-                return ast.literal_eval(tag_str)
-            except:
-                return []
-
-        df['ai_tags'] = df['ai_tags'].apply(parse_tags)
-        
-        # Ensure urgency is numeric for calculations
-        df['ai_urgency'] = pd.to_numeric(df['ai_urgency'], errors='coerce').fillna(0)
-        
-        return df
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        return pd.DataFrame()
-
-# Refresh Button
-if st.button("🔄 Refresh Data"):
-    st.cache_data.clear()
-    st.rerun()
-
-# ==========================================
-# 3. SIDEBAR: CONTROL PANEL
+# 2. SIDEBAR: SMART INPUT & MONITORS
 # ==========================================
 with st.sidebar:
-    st.header("⚙️ Control Panel")
+    st.header("🎮 Nexus Control")
     
-    # --- PART A: MANUAL SCRAPER ---
-    with st.expander("🚀 Launch Scraper", expanded=True):
-        url_input = st.text_area("Enter URLs (one per line):", height=100)
+    # --- A. MAGIC INPUT ---
+    st.caption("🚀 **Add New Source**")
+    with st.form("smart_add_form"):
+        new_url = st.text_input("Paste URL (RSS, Home, or Article)", placeholder="https://...")
+        custom_name = st.text_input("Name (Optional)", placeholder="e.g. TechCrunch")
         
-        if st.button("Start Scraping"):
-            if url_input:
-                from celery import chain
-                from src.scraper.tasks import scrape_task, enrich_task
-                
-                url_adapter = TypeAdapter(HttpUrl)
-                urls = url_input.strip().split('\n')
-                
-                valid_count = 0
-                invalid_urls = []
-                
-                for raw_url in urls:
-                    url_str = raw_url.strip()
-                    if not url_str: continue
-                    
-                    try:
-                        url_adapter.validate_python(url_str)
-                        # Chain: Scrape (Fast) -> Enrich (Slow)
-                        chain(scrape_task.s(url_str), enrich_task.s()).apply_async() # type: ignore
-                        valid_count += 1
-                    except ValidationError:
-                        invalid_urls.append(url_str)
-                
-                if valid_count > 0:
-                    st.success(f"Queued {valid_count} tasks!")
-                if invalid_urls:
-                    st.error(f"Invalid URLs: {len(invalid_urls)}")
-            else:
-                st.warning("Enter a URL first.")
+        # New Checkbox
+        force_single = st.checkbox("Single Page Scrape", help="Force this URL to be treated as a single article, ignoring auto-detection.")
 
-    st.divider()
-    
-   # --- PART B: SCHEDULER MANAGEMENT ---
-    st.subheader("🕒 Smart Scheduler")
-
-    # 1. NEW SCHEDULE FORM
-    with st.form("new_schedule"):
-        c1, c2 = st.columns([1, 2])
+        submitted = st.form_submit_button("⚡ Auto-Detect & Monitor")
         
-        with c1:
-            # Job Type Selection
-            job_type_map = {
-                "RSS Feed": JobType.RSS,
-                "Site Discovery": JobType.DISCOVERY,
-                "Single URL": JobType.SINGLE
-            }
-            selected_type_label = st.selectbox("Job Type:", list(job_type_map.keys()))
-            selected_type = job_type_map[selected_type_label]
-
-        with c2:
-            s_name = st.text_input("Job Name", placeholder="e.g. TechCrunch Monitor")
-
-        # Dynamic Help Text & URL Input
-        if selected_type == JobType.RSS:
-            st.info("📡 Monitors an RSS XML feed for new items.")
-            s_url = st.text_input("RSS Feed URL", placeholder="https://techcrunch.com/feed/")
-        elif selected_type == JobType.DISCOVERY:
-            st.info("🕷️ Crawls a domain (Sitemap/BFS) for new content.")
-            s_url = st.text_input("Homepage URL", placeholder="https://techcrunch.com")
-        else:
-            st.info("🔗 Re-scrapes a specific URL repeatedly.")
-            s_url = st.text_input("Article URL", placeholder="https://example.com/article")
-
-        # --- NEW: Layout for Interval & Limit ---
-        c3, c4 = st.columns(2)
-        with c3:
-            s_int = st.number_input("Check Interval (seconds)", min_value=60, value=3600, step=60)
-        
-        with c4:
-            # Only show limit input for RSS and Discovery jobs
-            if selected_type in [JobType.RSS, JobType.DISCOVERY]:
-                s_limit = st.number_input("Max Items per Run", min_value=1, max_value=200, value=10)
-            else:
-                s_limit = 1 # Default for Single URL (hidden from UI)
-
-        if st.form_submit_button("Create Schedule"):
-            if s_name and s_url:
-                db_add = SessionLocal()
-                try:
-                    # Create the Job with the LIMIT
-                    job = ScheduledJob(
-                        name=s_name, 
-                        url=s_url, 
-                        interval_seconds=s_int, 
-                        items_limit=s_limit,  # <--- Saving the limit
-                        is_active=True,
-                        job_type=selected_type
-                    )
-                    # 1. Save to DB
-                    db_add.add(job)
-                    db_add.commit()
-                    db_add.refresh(job) # Get the ID
-                    
-                    # 2. IMMEDIATE TRIGGER (Kickstart)
-                    if selected_type == JobType.RSS:
-                        process_rss_task.apply_async(args=[job.url, job.id, job.items_limit]) # pyright: ignore[reportFunctionMemberAccess]
-                    
-                    elif selected_type == JobType.DISCOVERY:
-                        # Resolve Source ID logic
-                        from urllib.parse import urlparse
-                        domain = urlparse(s_url).netloc
-                        src = db_add.query(Source).filter(Source.domain == domain).first()
-                        if not src:
-                            src = Source(domain=domain, robots_url=f"https://{domain}/robots.txt")
-                            db_add.add(src)
-                            db_add.commit()
-                        
-                        discover_sitemap_task.apply_async(args=[src.id, job.items_limit, False, job.id]) # pyright: ignore[reportFunctionMemberAccess]
-
-                    else: # Single
-                        chain(
-                            scrape_task.s(job.url, job_id=job.id),
-                            enrich_task.s(job_id=job.id)
-                        ).apply_async()
-
-                    st.success(f"Created & Triggered {selected_type_label} job!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
-                finally:
-                    db_add.close()
-
-    # 2. LIST EXISTING SCHEDULES
-    db_sched = SessionLocal()
-    try:
-        jobs = db_sched.query(ScheduledJob).order_by(ScheduledJob.created_at.desc()).all()
-        if jobs:
-            st.write("---")
-            # Create options with Type labels for clarity
-            job_opts = {
-                f"[{j.job_type.value.upper()}] {j.name}": j.id 
-                for j in jobs
-            }
-            sel_job = st.selectbox("Select Task:", ["-- Select --"] + list(job_opts.keys()))
-
-            if sel_job != "-- Select --":
-                jid = job_opts[sel_job]
-                jobj = next(j for j in jobs if j.id == jid) # type: ignore
-
-                c1, c2 = st.columns(2)
-                if c1.button("Toggle Active", key=f"tog_{jid}"):
-                    jobj.is_active = not bool(jobj.is_active) # type: ignore
-                    db_sched.commit()
-                    st.rerun()
-
-                if c2.button("Delete", key=f"del_{jid}", type="primary"):
-                    db_sched.delete(jobj)
-                    db_sched.commit()
-                    st.rerun()
-
-                is_active_status = bool(jobj.is_active) # type: ignore
-                
-                # --- NEW: Display the Limit in the info section ---
-                type_badge = f"🏷️ {jobj.job_type.value.upper()}" # type: ignore
-                limit_info = f" | Limit: {jobj.items_limit} items" if jobj.job_type != JobType.SINGLE else "" # type: ignore
-                
-                st.caption(f"{type_badge} | Status: {'✅ Active' if is_active_status else '❌ Inactive'}")
-                st.caption(f"Target: {jobj.url}") # type: ignore
-                st.caption(f"Interval: {jobj.interval_seconds}s{limit_info}") # type: ignore
-    finally:
-        db_sched.close()
-
-    st.divider()
-
-    # --- PART C: CRAWLER CONTROL ---
-    st.subheader("🕷️ Smart Crawler")
-
-    with st.expander("Sitemap Discovery", expanded=False):
-        st.caption("Auto-discover URLs. Tries Sitemap first, falls back to Recursive Crawler.")
-
-        crawl_db = SessionLocal()
-        try:
-            # --- 1. NEW: MODE SELECTION ---
-            discovery_strategy = st.radio(
-                "Discovery Strategy:",
-                ["Auto (Sitemap → Crawl)", "Force Recursive Crawl"],
-                horizontal=True,
-                help="Auto attempts sitemaps first. Force Crawl ignores sitemaps and searches the site structure."
-            )
-            # Determine Boolean for backend
-            is_force_crawl = (discovery_strategy == "Force Recursive Crawl")
-
-            # --- 2. TARGET SELECTION ---
-            discovery_mode = st.radio("Target:", ["Existing Source", "New Domain"], horizontal=True, label_visibility="collapsed")
+        if submitted and new_url:
+            # Pass the checkbox value to the logic
+            success, msg = logic.create_and_trigger_job(new_url, custom_name, force_single)
             
-            target_source_id = None
-            new_domain_url = None
-
-            if discovery_mode == "Existing Source":
-                all_sources = crawl_db.query(Source).all()
-                if not all_sources:
-                    st.info("No existing sources found.")
-                else:
-                    source_opts = {f"{s.domain} (ID: {s.id})": s.id for s in all_sources}
-                    selected_label = st.selectbox("Select Domain:", list(source_opts.keys()))
-                    if selected_label:
-                        target_source_id = source_opts[selected_label]
-            else:
-                new_domain_url = st.text_input("Enter Homepage URL:", placeholder="https://techcrunch.com")
-
-            limit_val = st.slider("Max Articles to Queue:", 10, 500, 50)
-
-            # --- 3. EXECUTION ---
-            if st.button("🚀 Start Discovery", key="btn_discover"):
-                # Case A: Use Existing
-                if target_source_id: # pyright: ignore[reportGeneralTypeIssues]
-                    from src.scraper.tasks import discover_sitemap_task
-                    
-                    # Pass the is_force_crawl argument
-                    discover_sitemap_task.apply_async(args=[target_source_id, limit_val, is_force_crawl]) # pyright: ignore[reportFunctionMemberAccess]
-                    st.toast(f"Discovery launched for Source ID {target_source_id}!", icon="🕷️")
-
-                # Case B: Create New & Use
-                elif new_domain_url:
-                    try:
-                        adapter = TypeAdapter(HttpUrl)
-                        adapter.validate_python(new_domain_url)
-                        parsed = urlparse(new_domain_url)
-                        domain = parsed.netloc
-
-                        source = crawl_db.query(Source).filter(Source.domain == domain).first()
-                        if not source:
-                            source = Source(
-                                domain=domain,
-                                robots_url=f"{parsed.scheme}://{domain}/robots.txt",
-                                last_crawled=datetime.now()
-                            )
-                            crawl_db.add(source)
-                            crawl_db.commit()
-                            crawl_db.refresh(source)
-                            st.success(f"Created new source: {domain}")
-
-                        from src.scraper.tasks import discover_sitemap_task
-                        
-                        # Pass the is_force_crawl argument
-                        discover_sitemap_task.apply_async(args=[source.id, limit_val, is_force_crawl]) # pyright: ignore[reportFunctionMemberAccess]
-                        st.toast(f"Discovery launched for {domain}!", icon="🕷️")
-
-                    except ValidationError:
-                        st.error("Invalid URL format.")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-                else:
-                    st.warning("Please select a source or enter a URL.")
-
-        finally:
-            crawl_db.close()
-            
-    # --- PART D: SYSTEM MAINTENANCE ---
-    st.divider()
-    st.subheader("🚑 System Maintenance")
-
-    with st.expander("Rescue Stalled Tasks", expanded=False):
-        st.caption("Push 'Pending' items from DB back into the AI Queue.")
-
-        # Check for pending items
-        pending_items = pd.read_sql("SELECT id, url FROM scraped_data WHERE ai_status = 'pending'", engine)
-
-        st.info(f"**{len(pending_items)}** items waiting in Database.")
-
-        if not pending_items.empty:
-            if st.button("🚀 Re-Queue All Pending"):
-                from src.scraper.tasks import enrich_task
-        
-                progress_text = "Dispatching tasks..."
-                my_bar = st.progress(0, text=progress_text)
-                
-                count = 0
-                total = len(pending_items)
-        
-                for index, row in pending_items.iterrows():
-                    # Re-dispatch to AI Worker
-                    enrich_task.s(row['id']).apply_async() # type: ignore
-                    
-                    count += 1
-                    my_bar.progress(count / total, text=f"Queued {count}/{total}")
-        
-                st.success(f"Successfully re-queued {count} tasks!")
-                import time
+            if success:
+                st.toast(msg, icon="✅")
                 time.sleep(1)
                 st.rerun()
+            else:
+                st.error(msg)
 
-# ==========================================
-# 4. MAIN CONTENT: ANALYTICS & FEED
-# ==========================================
-df = load_data()
-
-if not df.empty:
-    
-    # --- PIPELINE STATUS ---
-    st.header("📡 Pipeline Status")
-    
-    status_counts = df['ai_status'].value_counts()
-    s_pending = status_counts.get('pending', 0)
-    s_processing = status_counts.get('processing', 0)
-    s_completed = status_counts.get('completed', 0)
-    s_failed = status_counts.get('failed', 0)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("⏳ Pending", s_pending)
-    col2.metric("🧠 Processing", s_processing, delta_color="off")
-    col3.metric("✅ Completed", s_completed)
-    col4.metric("❌ Failed", s_failed, delta_color="inverse")
-    
     st.divider()
 
-    # --- ANALYTICS (Completed Only) ---
-    completed_df = df[df['ai_status'] == 'completed']
-
-    st.header("📊 AI Insights")
+    # --- B. ACTIVE MONITORS ---
+    st.subheader("📡 Active Monitors")
+    jobs = logic.get_active_jobs()
     
-    if not completed_df.empty:
-        m1, m2, m3 = st.columns(3)
-        
-        total_arts = len(completed_df)
-        avg_urg = completed_df['ai_urgency'].mean()
-        top_cat = completed_df['ai_category'].mode()[0] if not completed_df['ai_category'].mode().empty else "N/A"
-        
-        m1.metric("Analyzed Articles", total_arts)
-        m2.metric("Avg Urgency", f"{avg_urg:.1f}/10")
-        m3.metric("Top Category", top_cat)
-        
-        st.divider()
-        
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            st.subheader("Content Mix")
-            if not completed_df['ai_category'].dropna().empty:
-                cat_counts = completed_df['ai_category'].value_counts()
-                fig_pie = px.pie(values=cat_counts.values, names=cat_counts.index, hole=0.4)
-                st.plotly_chart(fig_pie, width="stretch")
-                
-        with c2:
-            st.subheader("Urgency Histogram")
-            if not completed_df['ai_urgency'].dropna().empty:
-                fig_hist = px.histogram(completed_df, x="ai_urgency", nbins=10, 
-                                        color_discrete_sequence=['#636EFA'], title="Distribution of Scores")
-                fig_hist.update_layout(bargap=0.1)
-                st.plotly_chart(fig_hist, width="stretch")
-                
-        st.subheader("🏷️ Top 15 Trending Tags")
-        all_tags = [tag for tags in completed_df['ai_tags'] for tag in tags]
-        
-        if all_tags:
-            tag_counts = Counter(all_tags).most_common(15)
-            tag_df = pd.DataFrame(tag_counts, columns=['Tag', 'Count'])
-            fig_bar = px.bar(tag_df, x='Count', y='Tag', orientation='h', color='Count')
-            st.plotly_chart(fig_bar, width="stretch")
-
-        st.divider()
+    if not jobs:
+        st.info("No active monitors.")
     else:
-        st.info("Waiting for AI to complete analysis on pending items...")
+        for job in jobs:
+            # Compact view
+            c1, c2 = st.columns([4, 1])
+            with c1:
+                st.markdown(f"**{job.name}**")
+                st.caption(f"{job.job_type.value.upper()} | {job.items_limit} items | {job.interval_seconds}s")
+            with c2:
+                if st.button("🗑️", key=f"del_{job.id}", help="Delete Job"):
+                    logic.delete_job(job.id) # pyright: ignore[reportArgumentType]
+                    st.rerun()
+            st.divider()
 
-    # ==========================================
-    # 5. VISUAL NEWS FEED
-    # ==========================================
-    st.header("📰 Intelligence Feed")
-    
-    min_urg = st.slider("Filter by Urgency:", 1, 10, 1)
-    
-    filtered_df = df[
-        (df['ai_status'] != 'completed') | 
-        (df['ai_urgency'] >= min_urg)
-    ]
-    
-    st.caption(f"Showing {len(filtered_df)} articles")
-    
-    cols = st.columns(3)
-    
-    for i, (_, row) in enumerate(filtered_df.iterrows()):
-        
-        # --- A. PENDING / PROCESSING / FAILED ---
-        if row['ai_status'] != 'completed':
-            if row['ai_status'] == 'processing':
-                status_color = "#3b82f6" # Blue
-                status_icon = "🧠"
-                status_text = "AI IS THINKING..."
-                extra_info = ""
-            elif row['ai_status'] == 'failed':
-                status_color = "#ef4444" # Red
-                status_icon = "❌"
-                status_text = "ANALYSIS FAILED"
-                extra_info = f"<div style='color:red; font-size:0.8em; margin-top:5px;'>{row.get('ai_error_log', '')[:100]}</div>"
-            else: # Pending
-                status_color = "#9ca3af" # Gray
-                status_icon = "⏳"
-                status_text = "QUEUED FOR AI"
-                extra_info = ""
+# ==========================================
+# 3. MAIN AREA: DATA LOADER
+# ==========================================
+df = logic.load_analytics_data()
 
-            card_html = f"""
-            <div class="card" style="border-left: 5px solid {status_color}; background-color: #f9fafb;">
-                <div style="display:flex; justify-content:space-between;">
-                    <h4 style="margin:0; font-size:1em; color: #333;">{row['title'] or row['url'][:50]}</h4>
-                </div>
-                <div style="margin-top:15px; font-weight:bold; color:{status_color};">
-                    {status_icon} {status_text}
-                </div>
-                {extra_info}
-                <div style="margin-top:auto; padding-top:10px; font-size:0.8em; color:gray;">
-                    Scraped: {row['created_at'].strftime('%H:%M:%S')}
-                </div>
-            </div>
-            """
-            with cols[i % 3]:
-                st.markdown(card_html, unsafe_allow_html=True)
-            continue
+# Header
+c_title, c_ref = st.columns([5, 1])
+with c_title:
+    st.title("🕸️ Nexus Command Center")
+with c_ref:
+    # FIX: Replaced use_container_width with width="stretch"
+    if st.button("🔄 Refresh", width="stretch"):
+        st.rerun()
 
-        # --- B. COMPLETED ITEMS ---
-        u_score = row['ai_urgency']
-        u_class = "urgent-high" if u_score >= 8 else "urgent-medium" if u_score >= 5 else "urgent-low"
-        border_col = "#991b1b" if u_score >= 8 else "#eab308" if u_score >= 5 else "#10b981"
-        
-        summary_text = row['summary'] if row['summary'] else "No summary available."
-       # if len(summary_text) > 150: summary_text = summary_text[:150] + "..."
-        
-        tags_html = "".join([f'<span class="tag-pill">#{t}</span>' for t in row['ai_tags'][:3]]) 
-        
-        card_html = f"""
-        <div class="card" style="border-left: 5px solid {border_col};">
-            <div style="display:flex; justify-content:space-between;">
-                <h4 style="margin:0; font-size:1.1em;">{row['title'][:50]}...</h4>
-                <span class="badge-urgent {u_class}">{int(u_score)}</span>
-            </div>
-            <div style="margin-top:5px; margin-bottom:10px;">
-                <span class="badge-category">{row['ai_category']}</span>
-            </div>
-            <p style="font-size:0.9em; color:#444;">{summary_text}</p>
-            <div style="margin-bottom:10px;">{tags_html}</div>
-            <div style="margin-top:auto; font-size:0.8em; color:gray; display:flex; justify-content:space-between;">
-                <span>{row['created_at'].strftime('%m-%d %H:%M')}</span>
-                <a href="{row['url']}" target="_blank" style="color:#2563eb; text-decoration:none;">Read &rarr;</a>
-            </div>
-        </div>
-        """
-        
-        with cols[i % 3]:
-            st.markdown(card_html, unsafe_allow_html=True)
+# Tabs
+tab_feed, tab_insights, tab_config = st.tabs(["🔥 Live Feed", "📊 Insights", "⚙️ Config"])
 
-else:
-    st.info("No data available yet. Add a URL in the sidebar to start!")
+# ==========================================
+# TAB 1: LIVE FEED
+# ==========================================
+with tab_feed:
+    if df.empty:
+        st.info("Waiting for intelligence... Add a URL in the sidebar.")
+    else:
+        # 1. Hero Cards (Urgency >= 7)
+        heroes = df[df['ai_urgency'] >= 7].head(4)
+        if not heroes.empty:
+            st.subheader("🚨 Priority Intel")
+            cols = st.columns(4)
+            for i, (_, row) in enumerate(heroes.iterrows()):
+                with cols[i % 4]:
+                    # TRUNCATION REMOVED: using row['title'] directly
+                    st.markdown(f"""
+                    <div class="hero-card">
+                        <h4 style="margin:0; font-size:1.1em; line-height:1.4; word-wrap: break-word;">
+                            {row['title']}
+                        </h4>
+                        <div style="margin-top:15px;">
+                            <div style="font-weight:bold; color:#d9534f; font-size:0.9em;">
+                                Score: {int(row['ai_urgency'])}/10
+                            </div>
+                            <div style="color:#666; font-size:0.8em; margin-top:5px;">
+                                {row['ai_category']}
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # 2. Data River (The rest)
+        st.subheader("🌊 Intelligence Stream")
+        
+        # Filters
+        filter_col, _ = st.columns([2,4])
+        cat_filter = filter_col.multiselect("Filter Category", df['ai_category'].unique())
+        
+        view_df = df
+        if cat_filter:
+            view_df = df[df['ai_category'].isin(cat_filter)]
+
+        for _, row in view_df.iterrows():
+            # Status Indicator
+            status_emoji = "✅" if row['ai_status'] == 'completed' else "⏳" if row['ai_status'] == 'pending' else "❌"
+            
+            with st.expander(f"{status_emoji}  |  {row['ai_category']}  |  {row['title']}"):
+                mc1, mc2 = st.columns([3, 1])
+                with mc1:
+                    st.markdown(f"**Summary:** {row['summary']}")
+                    if row['ai_tags']:
+                        st.caption(f"🏷️ {', '.join(row['ai_tags'])}")
+                    if row['ai_error_log']:
+                        st.error(f"Log: {row['ai_error_log']}")
+                with mc2:
+                    st.metric("Urgency", f"{row['ai_urgency']}/10")
+                    st.caption(f"📅 {row['created_at'].strftime('%H:%M %p')}")
+                    st.link_button("🔗 Read Source", row['url'])
+
+# ==========================================
+# TAB 2: INSIGHTS
+# ==========================================
+with tab_insights:
+    if not df.empty:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("Urgency Timeline")
+            # FIX: Replaced 'H' with 'h' for pandas deprecation
+            trend = df.set_index('created_at').resample('h')['ai_urgency'].mean().reset_index()
+            fig_line = px.line(trend, x='created_at', y='ai_urgency', markers=True)
+            # FIX: Updated width for plotly
+            st.plotly_chart(fig_line, width='stretch')
+            
+        with c2:
+            st.subheader("Content Mix")
+            fig_pie = px.pie(df, names='ai_category', title='Category Distribution', hole=0.4)
+            # FIX: Updated width for plotly
+            st.plotly_chart(fig_pie, width='stretch')
+    else:
+        st.info("No data for analytics.")
+
+# ==========================================
+# TAB 3: CONFIGURATION
+# ==========================================
+with tab_config:
+    st.subheader("🛠️ Maintenance")
+    st.write("Database management tools.")
+    
+    col_m1, _ = st.columns([1, 4])
+    
+    with col_m1:
+        # IMPLEMENTED: Connected to Logic Layer
+        if st.button("🧹 Clear Failed Tasks", width="stretch"):
+            success, msg = logic.clear_failed_tasks()
+            if success:
+                st.success(msg)
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error(msg)
