@@ -1,6 +1,8 @@
 import pytest # pyright: ignore[reportMissingImports]
 from unittest.mock import MagicMock, patch
 from src.scraper.tasks import scrape_task
+from src.scraper.tasks import enrich_task
+from src.database.models import AIStatus
 
 # --- Fixture to mock the DB ID generation ---
 def mock_db_add_behavior(obj):
@@ -58,3 +60,51 @@ def test_scrape_task_blocked(mock_allowed, mock_db_cls):
     # Ensure we didn't try to add anything to DB (except maybe a log)
     # We check that we didn't add *ScrapedData*
     # (Checking strictly for 0 adds might fail if your code logs to DB)
+
+# New: Test Enrich Task with Mocked AI and DB
+@patch('src.scraper.tasks.Brain')          # Mock the AI Brain class
+@patch('src.scraper.tasks.SessionLocal')   # Mock the Database
+def test_enrich_task_success(mock_db_cls, mock_brain_cls):
+    """
+    Test that enrich_task:
+    1. Generates an embedding
+    2. Analyzes the text
+    3. Saves both to the DB
+    """
+    # 1. Setup Mock DB
+    mock_session = MagicMock()
+    mock_db_cls.return_value = mock_session
+    
+    # Create a fake article object that the DB "finds"
+    mock_article = MagicMock()
+    mock_article.clean_text = "This is a test article about AI."
+    mock_article.ai_status = "pending"
+    mock_session.query.return_value.filter.return_value.first.return_value = mock_article
+
+    # 2. Setup Mock Brain (AI)
+    mock_brain_instance = mock_brain_cls.return_value
+    # Mock Embedding Return
+    mock_brain_instance.generate_embedding.return_value = [0.1, 0.2, 0.3] 
+    # Mock Analysis Return
+    mock_brain_instance.analyze_article.return_value = {
+        "summary": "Short summary",
+        "tags": ["tech"],
+        "category": "Technology",
+        "urgency": 8
+    }
+
+    # 3. Run the Task
+    # We pass '1' as the article_id
+    result = enrich_task.apply(args=[1]).get()
+
+    # 4. Assertions
+    assert result == "Enrichment Success"
+    
+    # Did we verify the embedding was saved?
+    assert mock_article.embedding == [0.1, 0.2, 0.3]
+    
+    # Did we verify the status was updated?
+    assert mock_article.ai_status == AIStatus.COMPLETED
+    
+    # Did we commit to DB?
+    mock_session.commit.assert_called()
