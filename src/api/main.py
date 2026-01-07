@@ -7,6 +7,8 @@ from src.database.connection import get_db # import the database session depende
 from src.database.models import ScrapedData # import the database models
 from src.api.schemas import ArticleResponse, ArticleDetail # import the response schemas
 
+from src.ai.memory import search_memory # import the memory search function
+
 app = FastAPI(title="Scraper API", version="1.0.0") # Initialize FastAPI app
 
 @app.get("/")
@@ -55,3 +57,26 @@ def get_article_detail(article_id: int, db: Session = Depends(get_db)):
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
     return article
+
+# New: Semantic Memory Search Endpoint
+@app.get("/api/v1/memory/search")
+def search_memory_api(
+    q: str = Query(..., description="Search query"),
+    limit: int = 5
+):
+    """
+    Semantic Search: Finds articles based on meaning, not just keywords.
+    """
+    results = search_memory(q, limit=limit)
+    return {
+        "query": q,
+        "count": len(results),
+        "results": [
+            {
+                "id": r.id,
+                "title": r.title,
+                "category": r.ai_category,
+                "similarity_score": "N/A" # Complexity omitted for brevity
+            } for r in results
+        ]
+    }

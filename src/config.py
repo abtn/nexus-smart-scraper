@@ -38,6 +38,11 @@ class Settings:
     AI_BASE_URL = os.getenv("AI_BASE_URL", "http://ollama:11434") 
     AI_MODEL = os.getenv("AI_MODEL", "phi3.5") 
     
+    # --- 6. MEMORY (Embeddings) ---
+    # We use nomic-embed-text (dim=768) as it is standard for local RAG
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+    EMBEDDING_DIM = 768
+    
     # List of Modern User-Agents
     USER_AGENTS = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

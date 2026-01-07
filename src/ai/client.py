@@ -190,3 +190,26 @@ class Brain:
         resp = requests.post(f"{settings.AI_BASE_URL}/api/generate", json=payload, timeout=120)
         resp.raise_for_status()
         return resp.json().get('response', '')
+    
+    # --- NEW: EMBEDDING GENERATION METHOD ---
+    def generate_embedding(self, text: str) -> list[float] | None:
+        """
+        Generates a vector embedding for the given text using Ollama.
+        """
+        if not text: return None
+        
+        # Truncate text to prevent context overflow (keep first 2000 chars ~500 tokens)
+        snippet = text[:2000] 
+        
+        try:
+            payload = {
+                "model": settings.EMBEDDING_MODEL,
+                "prompt": snippet
+            }
+            # Note: Ollama embedding endpoint is /api/embeddings
+            resp = requests.post(f"{settings.AI_BASE_URL}/api/embeddings", json=payload, timeout=10)
+            resp.raise_for_status()
+            return resp.json().get('embedding')
+        except Exception as e:
+            print(f"🔻 Brain: Embedding generation failed: {e}")
+            return None

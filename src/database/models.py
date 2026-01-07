@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, Boolean, F
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime, timezone
 import enum
+from pgvector.sqlalchemy import Vector # New: Import Vector type from pgvector extension
+from src.config import settings
 
 # 1. Define the Enum FIRST so it can be used below
 class AIStatus(str, enum.Enum):
@@ -48,6 +50,12 @@ class ScrapedData(Base):
     summary = Column(Text, nullable=True)          
     main_image = Column(String, nullable=True)     
     clean_text = Column(Text, nullable=True)       
+    
+    # --- NEW: MEMORY COLUMN ---
+    # Stores the vector representation (768 dimensions for nomic-embed-text)
+    embedding = Column(Vector(settings.EMBEDDING_DIM), nullable=True)
+
+    content = Column(JSON)
     
     # --- AI METADATA ---
     # Now this works because AIStatus is defined above

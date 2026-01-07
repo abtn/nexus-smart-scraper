@@ -19,6 +19,7 @@ python-dotenv
 sqlalchemy
 psycopg2-binary
 alembic
+pgvector # For vector storage in PostgreSQL
 
 # Scraping & Async
 aiohttp

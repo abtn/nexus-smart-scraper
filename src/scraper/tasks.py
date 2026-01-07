@@ -19,7 +19,7 @@ from src.ai.client import Brain
 # Import the prioritization helper we made
 from src.scraper.discovery import fetch_sitemaps, crawl_recursive
 
-import feedparser # pyright: ignore[reportMissingImports] # <--- NEW
+import feedparser # pyright: ignore[reportMissingImports] 
 from src.database.models import JobType # <--- NEW
 
 app = Celery('scraper', broker=settings.REDIS_URL)
@@ -203,6 +203,15 @@ def enrich_task(self, article_id, job_id=None):
         brain = Brain()
         ai_data = safe_analyze(brain, article.clean_text)
 
+        # 1. Generate Embeddings (NEW)
+        # We do this independently of the analysis so we get vector data even if analysis fails
+        vector = brain.generate_embedding(article.clean_text) # pyright: ignore[reportArgumentType]
+        if vector:
+            article.embedding = vector # pyright: ignore[reportAttributeAccessIssue]
+
+        # 2. Analyze Content (Existing)
+        ai_data = safe_analyze(brain, article.clean_text)
+        
         if ai_data:
             article.ai_tags = ai_data.get('tags')
             article.ai_category = ai_data.get('category')

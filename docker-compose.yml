@@ -1,7 +1,7 @@
 services:
   # 1. Database
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg15 # New: PostgreSQL with pgvector extension
     container_name: scraper_postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -124,7 +124,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     # Smart Entrypoint: Starts server, waits for it, then pulls model
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull ${AI_MODEL:-phi3.5} && wait"]
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull ${AI_MODEL:-phi3.5} && ollama pull nomic-embed-text && wait"] # New:Pull embedding model too
     environment:
       - AI_MODEL=${AI_MODEL:-phi3.5}
       # Optional: Keep model loaded in RAM for 5 mins to make subsequent requests faster
