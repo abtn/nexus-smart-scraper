@@ -11,6 +11,8 @@ from src.database.connection import SessionLocal
 from src.database.models import ScrapedData, ScheduledJob, Source, JobType
 from src.scraper.tasks import process_rss_task, discover_sitemap_task, scrape_task, enrich_task
 
+from src.scraper.hunter import search_web # import the web search function
+
 # --- 1. DATA FETCHING ---
 def get_engine():
     return create_engine(settings.DB_URL)
@@ -77,7 +79,7 @@ def detect_source_type(url: str):
     # Default: Discovery
     return JobType.DISCOVERY, 3600, "Site Discovery"
 
-def create_and_trigger_job(url: str, name: str = None, force_single: bool = False): # <--- Added argument
+def create_and_trigger_job(url: str, name: str = None, force_single: bool = False): # pyright: ignore[reportArgumentType] # <--- Added argument
     """
     The 'Magic' function. Detects type, saves DB, triggers Celery.
     """
@@ -113,7 +115,7 @@ def create_and_trigger_job(url: str, name: str = None, force_single: bool = Fals
 
         # 4. Immediate Trigger (Kickstart)
         if j_type == JobType.RSS:
-            process_rss_task.apply_async(args=[job.url, job.id, job.items_limit])
+            process_rss_task.apply_async(args=[job.url, job.id, job.items_limit]) # pyright: ignore[reportFunctionMemberAccess]
         
         elif j_type == JobType.DISCOVERY:
             # Auto-create source if needed
@@ -123,10 +125,10 @@ def create_and_trigger_job(url: str, name: str = None, force_single: bool = Fals
                 src = Source(domain=domain, robots_url=f"https://{domain}/robots.txt")
                 db.add(src)
                 db.commit()
-            discover_sitemap_task.apply_async(args=[src.id, job.items_limit, False, job.id])
+            discover_sitemap_task.apply_async(args=[src.id, job.items_limit, False, job.id]) # pyright: ignore[reportFunctionMemberAccess]
 
         else: # Single
-            chain(scrape_task.s(job.url, job_id=job.id), enrich_task.s(job_id=job.id)).apply_async()
+            chain(scrape_task.s(job.url, job_id=job.id), enrich_task.s(job_id=job.id)).apply_async() # pyright: ignore[reportFunctionMemberAccess]
 
         return True, f"Created & Started {label}"
 
@@ -155,3 +157,18 @@ def clear_failed_tasks():
         return False, f"Error: {e}"
     finally:
         db.close()
+        
+# --- 3. HUNTER WRAPPER ---
+def hunt_topic(topic: str, limit: int = 10):
+    """
+    Wrapper for the Hunter to be used in the Dashboard.
+    Returns: (SuccessBool, MessageString, URLList)
+    """
+    try:
+        urls = search_web(topic, max_results=limit)
+        if not urls:
+            return False, "No valid sources found.", []
+        
+        return True, f"Found {len(urls)} new sources.", urls
+    except Exception as e:
+        return False, str(e), []

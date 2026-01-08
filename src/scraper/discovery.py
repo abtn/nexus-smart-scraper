@@ -100,27 +100,28 @@ def is_internal_link(link, domain):
     except:
         return False
 
+# Filters out non-useful links
 def is_useful_link(url):
     """
     Filters out static assets, login pages, and irrelevant files.
     """
     url_lower = url.lower()
-    
+
     # Exclude assets
     if any(url_lower.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.css', '.js', '.pdf', '.zip', '.mp4']):
         return False
-    
-    # Exclude utilities AND Ads/Redirects <--- UPDATED HERE
-    # Added: 'ads', 'redirect', 'banner', 'click'
+
+    # Exclude utilities AND Ads/Redirects AND Video Platforms (Phase 2 Update)
     excluded_terms = [
-        'login', 'register', 'signin', 'signup', 'contact', 'cart', 
-        'checkout', 'account', '#', 'javascript:', 
-        '/ads/', '/redirect/', '/banner/', '/click/'
+        'login', 'register', 'signin', 'signup', 'contact', 'cart',
+        'checkout', 'account', '#', 'javascript:',
+        '/ads/', '/redirect/', '/banner/', '/click/',
+        'youtube.com', 'youtu.be', 'vimeo.com', 'dailymotion.com' # <--- NEW: Video filters
     ]
-    
+
     if any(x in url_lower for x in excluded_terms):
         return False
-        
+
     return True
 
 def classify_link(url_path):

@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, Boolean, F
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime, timezone
 import enum
-from pgvector.sqlalchemy import Vector # New: Import Vector type from pgvector extension
+from pgvector.sqlalchemy import Vector # pyright: ignore[reportMissingImports] # New: Import Vector type from pgvector extension
 from src.config import settings
 
 # 1. Define the Enum FIRST so it can be used below

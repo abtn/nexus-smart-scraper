@@ -44,3 +44,6 @@ uvicorn
 
 # RSS Feed
 feedparser
+
+# Search assistant
+duckduckgo-search>=6.0.0 # For web search functionality

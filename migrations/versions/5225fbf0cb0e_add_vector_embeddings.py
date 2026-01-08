@@ -7,9 +7,9 @@ Create Date: 2026-01-07 08:59:27.593023
 """
 from typing import Sequence, Union
 
-from alembic import op
+from alembic import op # pyright: ignore[reportMissingImports]
 import sqlalchemy as sa
-from pgvector.sqlalchemy import Vector # New: Import Vector type from pgvector extension
+from pgvector.sqlalchemy import Vector # pyright: ignore[reportMissingImports] # New: Import Vector type from pgvector extension
 
 
 # revision identifiers, used by Alembic.

@@ -69,6 +69,29 @@ with st.sidebar:
 
     st.divider()
 
+# --- NEW: C. TOPIC HUNTER ---
+    st.subheader("👀 Topic Hunter")
+    st.caption("Find new sources for a specific topic.")
+    
+    with st.form("hunt_form"):
+        hunt_topic = st.text_input("Search Topic", placeholder="e.g. Quantum Computing Advances")
+        hunt_limit = st.slider("Max Results", 5, 20, 10)
+        hunt_submitted = st.form_submit_button("🎯 Hunt Targets")
+        
+        if hunt_submitted and hunt_topic:
+            with st.spinner("Hunting the web..."):
+                success, msg, urls = logic.hunt_topic(hunt_topic, hunt_limit)
+            
+            if success:
+                st.toast(msg, icon="👀")
+                st.success(f"**Discovered {len(urls)} URLs:**")
+                for url in urls:
+                    st.code(url, language="text")
+            else:
+                st.error(msg)
+
+    st.divider()
+
     # --- B. ACTIVE MONITORS ---
     st.subheader("📡 Active Monitors")
     jobs = logic.get_active_jobs()

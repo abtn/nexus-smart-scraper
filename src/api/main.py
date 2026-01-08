@@ -8,6 +8,8 @@ from src.database.models import ScrapedData # import the database models
 from src.api.schemas import ArticleResponse, ArticleDetail # import the response schemas
 
 from src.ai.memory import search_memory # import the memory search function
+from src.scraper.hunter import search_web # import the web search function
+
 
 app = FastAPI(title="Scraper API", version="1.0.0") # Initialize FastAPI app
 
@@ -80,3 +82,23 @@ def search_memory_api(
             } for r in results
         ]
     }
+
+# New: Hunt Endpoint to Search the Web
+@app.post("/api/v1/hunt")
+def hunt_for_sources(
+    topic: str = Query(..., description="Topic to search for"),
+    limit: int = Query(10, description="Max number of results")
+):
+    """
+    The 'Eyes' of Nexus.
+    Searches the web for relevant URLs based on a topic.
+    """
+    try:
+        urls = search_web(topic, max_results=limit)
+        return {
+            "topic": topic,
+            "found_count": len(urls),
+            "targets": urls
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

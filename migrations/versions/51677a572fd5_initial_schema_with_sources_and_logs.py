@@ -7,7 +7,7 @@ Create Date: 2025-12-26 08:03:57.305910
 """
 from typing import Sequence, Union
 
-from alembic import op
+from alembic import op # pyright: ignore[reportMissingImports]
 import sqlalchemy as sa
 
 

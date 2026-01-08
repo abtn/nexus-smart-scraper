@@ -95,7 +95,7 @@ def test_enrich_task_success(mock_db_cls, mock_brain_cls):
 
     # 3. Run the Task
     # We pass '1' as the article_id
-    result = enrich_task.apply(args=[1]).get()
+    result = enrich_task.apply(args=[1]).get() # pyright: ignore[reportFunctionMemberAccess]
 
     # 4. Assertions
     assert result == "Enrichment Success"
