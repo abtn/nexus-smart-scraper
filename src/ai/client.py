@@ -187,7 +187,7 @@ class Brain:
             "format": "json"
         }
         if system_prompt: payload["system"] = system_prompt
-        resp = requests.post(f"{settings.AI_BASE_URL}/api/generate", json=payload, timeout=120)
+        resp = requests.post(f"{settings.AI_BASE_URL}/api/generate", json=payload, timeout=300)
         resp.raise_for_status()
         return resp.json().get('response', '')
     
@@ -207,7 +207,7 @@ class Brain:
                 "prompt": snippet
             }
             # Note: Ollama embedding endpoint is /api/embeddings
-            resp = requests.post(f"{settings.AI_BASE_URL}/api/embeddings", json=payload, timeout=10)
+            resp = requests.post(f"{settings.AI_BASE_URL}/api/embeddings", json=payload, timeout=60)
             resp.raise_for_status()
             return resp.json().get('embedding')
         except Exception as e:

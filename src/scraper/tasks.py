@@ -13,7 +13,7 @@ from src.config import settings
 from src.scraper.compliance import is_allowed
 from src.scraper.parsers import parse_smart
 from src.database.connection import SessionLocal
-from src.database.models import ScrapedData, Source, ScrapedLog, ScheduledJob, AIStatus
+from src.database.models import ScrapedData, Source, ScrapedLog, ScheduledJob, AIStatus, GeneratedContent
 
 from src.ai.client import Brain
 # Import the prioritization helper we made
@@ -481,3 +481,15 @@ app.conf.beat_schedule = {
         'schedule': 10.0,  # <--- CHANGED FROM 60.0 TO 10.0
     },
 }
+@app.task(bind=True, queue='ai_queue')
+def generate_content_task(self, task_id: str, user_prompt: str, max_sources: int):
+    """
+    Celery Wrapper for the Orchestrator workflow.
+    """
+    # Local import to prevent circular dependency
+    from src.ai.orchestrator import Orchestrator
+    
+    print(f"🚀 [BRAIN] Starting workflow Task ID: {task_id}")
+    orchestrator = Orchestrator(task_id)
+    orchestrator.run(user_prompt, max_sources)
+    return "Workflow Finished"

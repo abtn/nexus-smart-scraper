@@ -4,12 +4,14 @@ from sqlalchemy.orm import Session # import Session for database interactions
 from typing import List # import List for type hinting
 
 from src.database.connection import get_db # import the database session dependency
-from src.database.models import ScrapedData # import the database models
-from src.api.schemas import ArticleResponse, ArticleDetail # import the response schemas
+from src.database.models import ScrapedData, GeneratedContent, GeneratedContentStatus # import the database models
+from src.api.schemas import ArticleResponse, ArticleDetail, GenerateRequest, GenerateResponse, TaskStatusResponse
+ # import the response schemas
 
 from src.ai.memory import search_memory # import the memory search function
 from src.scraper.hunter import search_web # import the web search function
-
+from src.scraper.tasks import generate_content_task
+import uuid
 
 app = FastAPI(title="Scraper API", version="1.0.0") # Initialize FastAPI app
 
@@ -83,7 +85,7 @@ def search_memory_api(
         ]
     }
 
-# New: Hunt Endpoint to Search the Web
+# Hunt Endpoint to Search the Web
 @app.post("/api/v1/hunt")
 def hunt_for_sources(
     topic: str = Query(..., description="Topic to search for"),
@@ -102,3 +104,65 @@ def hunt_for_sources(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- NEW: GENERATION ENDPOINTS ---
+@app.post("/api/generate", response_model=GenerateResponse)
+def start_generation(request: GenerateRequest):
+    """
+    Starts the Adaptive Intelligence Workflow.
+    """
+    task_id = f"gen_{uuid.uuid4().hex[:12]}"
+    
+    db = next(get_db())
+    try:
+        new_task = GeneratedContent(
+            task_id=task_id,
+            user_prompt=request.prompt,
+            status=GeneratedContentStatus.PROCESSING
+        )
+        db.add(new_task)
+        db.commit()
+    finally:
+        db.close()
+        
+    # Trigger Celery Task
+    generate_content_task.apply_async( # pyright: ignore[reportFunctionMemberAccess]
+        args=[task_id, request.prompt, request.max_new_sources],
+        task_id=task_id
+    )
+    
+    return GenerateResponse(
+        task_id=task_id,
+        status="processing",
+        message="Workflow started."
+    )
+
+@app.get("/api/generate/{task_id}", response_model=TaskStatusResponse)
+def get_generation_status(task_id: str):
+    """Check the status of a generation task"""
+    db = next(get_db())
+    try:
+        task = db.query(GeneratedContent).filter(GeneratedContent.task_id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # FIX: task.status is a String, not an Enum object. 
+        # We compare it directly to the Enum's value string.
+        progress_msg = task.status
+        
+        if task.status == GeneratedContentStatus.PROCESSING.value: # type: ignore # Compare string to string
+            if task.search_queries: # type: ignore
+                progress_msg = "Hunting for new data..."
+            else:
+                progress_msg = "Analyzing & Synthesizing..."
+
+        return TaskStatusResponse(
+            task_id=task.task_id, # pyright: ignore[reportArgumentType]
+            status=task.status, # FIX: Remove .value here # pyright: ignore[reportArgumentType]
+            progress=progress_msg, # pyright: ignore[reportArgumentType]
+            generated_text=task.generated_text, # pyright: ignore[reportArgumentType]
+            articles_used=len(task.used_article_ids) if task.used_article_ids else 0, # type: ignore
+            created_at=task.created_at # pyright: ignore[reportArgumentType]
+        )
+    finally:
+        db.close()

@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, Boolean, F
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime, timezone
 import enum
-from pgvector.sqlalchemy import Vector # pyright: ignore[reportMissingImports] # New: Import Vector type from pgvector extension
+from pgvector.sqlalchemy import Vector # pyright: ignore[reportMissingImports]
 from src.config import settings
 
 # 1. Define the Enum FIRST so it can be used below
@@ -90,3 +90,28 @@ class ScheduledJob(Base):
     is_active = Column(Boolean, default=True)
     last_triggered_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    
+# 1. Add Status Enum
+class GeneratedContentStatus(str, enum.Enum):
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+# 2. Add GeneratedContent Table
+class GeneratedContent(Base):
+    __tablename__ = 'generated_content'
+    
+    id = Column(Integer, primary_key=True)
+    task_id = Column(String(64), unique=True, index=True, nullable=False)
+    user_prompt = Column(Text, nullable=False)
+    generated_text = Column(Text, nullable=True)
+    
+    # Status Management
+    status = Column(String(20), default=GeneratedContentStatus.PROCESSING, index=True)
+    
+    # Metadata (Stored as JSON)
+    search_queries = Column(JSON, nullable=True)     
+    used_article_ids = Column(JSON, nullable=True) 
+    
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
