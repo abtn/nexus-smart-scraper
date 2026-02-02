@@ -31,7 +31,34 @@ class Brain:
             except json.JSONDecodeError:
                 pass
         return None
+    
+    # --- NEW: PUBLIC CHAT METHOD ---
+    def chat(self, system_prompt: str, user_prompt: str, temperature: float = 0.3) -> str | None:
+        """
+        Generic chat interface using the provider waterfall.
+        Used by the Orchestrator for reasoning (Audit) and writing (Synthesis).
+        """
+        # --- THE WATERFALL LOOP ---
+        for provider_name, strategy_func in self.providers:
+            try:
+                print(f"🧠 Brain (Chat): Trying provider '{provider_name}'...")
+                
+                # Execute Strategy
+                raw_result = strategy_func(user_prompt, system_prompt)
 
+                if raw_result:
+                    print(f"✅ Brain (Chat): Success via '{provider_name}'")
+                    return raw_result.strip()
+                else:
+                    print(f"⚠️ Brain (Chat): '{provider_name}' returned empty.")
+
+            except Exception as e:
+                print(f"🔻 Brain (Chat): '{provider_name}' failed ({str(e)[:100]}...). Switching...")
+                continue
+
+        print("🔥 Brain (Chat): All providers failed.")
+        return None
+    # --- ARTICLE ANALYSIS METHOD ---
     def analyze_article(self, text: str) -> dict | None:
         if not text: return None
         
@@ -213,3 +240,5 @@ class Brain:
         except Exception as e:
             print(f"🔻 Brain: Embedding generation failed: {e}")
             return None
+    
+    

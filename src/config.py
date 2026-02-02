@@ -51,4 +51,8 @@ class Settings:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
     ]
+    
+    # --- 7. TAVILY SEARCH (New: High Quality Search for Agents) ---
+    TAVILY_API_KEY = os.getenv("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")
+    
 settings = Settings()
