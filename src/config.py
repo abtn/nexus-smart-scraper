@@ -53,6 +53,7 @@ class Settings:
     ]
     
     # --- 7. TAVILY SEARCH (New: High Quality Search for Agents) ---
-    TAVILY_API_KEY = os.getenv("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")
+    # FIXED: We look for a variable named "TAVILY_API_KEY", not the key itself.
+    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
     
 settings = Settings()
