@@ -41,7 +41,9 @@ services:
     container_name: ai_worker
     # Command uses 'prefork' which is standard for CPU/API bound tasks.
     # Concurrency 2 is fine for API calls (could even go higher now that it's API based).
-    command: celery -A src.scraper.tasks worker --loglevel=info --pool=prefork --concurrency=1 -Q ai_queue -n worker.ai@%h
+    # Concurrency 4: Orchestrator waits in Thread 1, Enricher runs in Thread 2
+
+    command: celery -A src.scraper.tasks worker --loglevel=info --pool=prefork --concurrency=4 -Q ai_queue -n worker.ai@%h
     depends_on:
       postgres:
         condition: service_healthy

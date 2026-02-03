@@ -78,7 +78,6 @@ class Orchestrator:
         Hunt -> Scrape -> Wait Loop.
         """
         print(f"👀 [GAP-FILL] Hunting for: {queries}")
-        # Import here to avoid circular import at top level
         from src.scraper.tasks import scrape_task, enrich_task
 
         all_urls = []
@@ -93,21 +92,31 @@ class Orchestrator:
 
         # 1. Dispatch Tasks
         for url in unique_urls:
-            chain(scrape_task.s(url), enrich_task.s()).apply_async() # pyright: ignore[reportFunctionMemberAccess]
+            chain(scrape_task.s(url), enrich_task.s()).apply_async()
 
-        # 2. Polling Wait Loop (Safer than blocking Celery)
-        # We wait up to 90s for data to appear in DB
+        # 2. Polling Wait Loop
         print(f"⏳ Waiting for {len(unique_urls)} sources to process...")
-        for _ in range(30): # 30 checks * 3 seconds = 90s max
+        
+        # FIX: We will loop up to 40 times (120 seconds)
+        # But we will also break early if we have at least 1 result after 20 loops (60s)
+        # This prevents being stuck if 1 URL fails.
+        
+        for i in range(40): 
             processed_count = 0
             for url in unique_urls:
                 rec = self.db.query(ScrapedData).filter(ScrapedData.url == url).first()
                 if rec and rec.ai_status == AIStatus.COMPLETED: # pyright: ignore[reportGeneralTypeIssues]
                     processed_count += 1
 
+            # Logic: If we have all of them, OR if we have at least 1 and waited > 60s
             if processed_count >= len(unique_urls):
-                print("✅ [GAP-FILL] All sources ready.")
+                print(f"✅ [GAP-FILL] All {len(unique_urls)} sources ready.")
                 break
+            
+            if processed_count > 0 and i > 20:
+                print(f"⚠️ [GAP-FILL] Timeout reached. Proceeding with {processed_count}/{len(unique_urls)} sources.")
+                break
+
             time.sleep(3)
 
     def phase_3_synthesis(self, user_prompt: str) -> str:
