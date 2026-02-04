@@ -1,70 +1,42 @@
-# 🕸️ Nexus — Smart AI Scraper
+# 🕸️ Nexus — Autonomous Adaptive Intelligence Node
 
-**Nexus** is a scalable, containerized web intelligence pipeline designed to transform unstructured web traffic into structured, analyzable data. It combines an **active discovery crawler** with a **self-healing AI analysis layer**, allowing ingestion and enrichment to continue even when APIs fail, rate limits are hit, or sitemaps are unavailable.
+**Nexus** is not just a scraper; it is a self-evolving **Agentic RAG** system. It bridges the gap between static databases and the dynamic web.
 
-The project is built for resilience, observability, and controlled automation rather than blind scraping.
+Unlike traditional RAG systems that fail when they lack data, Nexus detects knowledge gaps, autonomously **hunts** for new information, ingests it in real-time, and **learns** from the process by adding high-value sources to its permanent monitoring schedule.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Celery](https://img.shields.io/badge/Queues-Celery%20%2F%20Redis-green)
-![AI Waterfall](https://img.shields.io/badge/AI-Waterfall%20Redundancy-purple)
-![Docker](https://img.shields.io/badge/Deploy-Docker%20Compose-blue)
+![Architecture](https://img.shields.io/badge/Architecture-Agentic%20RAG-purple)
+![Database](https://img.shields.io/badge/Memory-Postgres%20%2B%20pgvector-blue)
+![Search](https://img.shields.io/badge/Eyes-Tavily%20%2F%20DuckDuckGo-orange)
+![Deploy](https://img.shields.io/badge/Deploy-Docker%20Compose-green)
 
 ---
 
-## 🚀 Key Features
+## 🧠 The 4 Phases of Intelligence
 
-### 1. 🧠 Self-Healing AI “Waterfall”
+Nexus operates on a four-stage cognitive architecture:
 
-Nexus does not depend on a single AI provider. Content analysis is performed through a **priority-based fallback chain**. When a provider fails (HTTP 5xx), throttles (429), or becomes unavailable, the system automatically switches to the next option without interrupting the pipeline.
+### 1. 💾 Memory (Semantic Recall)
+*   **Tech:** PostgreSQL + `pgvector` + `nomic-embed-text`.
+*   **Function:** Stores scraped articles not just as text, but as **vector embeddings**.
+*   **Benefit:** Allows the system to recall information based on *meaning* and concepts, not just keyword matches.
 
-Current priority order:
+### 2. 👀 Eyes (The Hunter)
+*   **Tech:** Tavily API (Primary) with DuckDuckGo Fallback.
+*   **Function:** When the system realizes it doesn't know an answer, it searches the live web.
+*   **Resilience:** Automatically filters out noise (YouTube, PDFs, Ads) and handles `robots.txt` compliance and network fragmentation (MTU issues).
 
-1. **AvalAI** — Primary (high throughput, low latency)
-2. **Cloudflare Workers AI** — Secondary (cost-efficient)
-3. **Cohere** — Fallback (large context handling)
-4. **OpenRouter** — Aggregated routing layer
-5. **Ollama** — Local fallback (offline / privacy-focused)
+### 3. 🤖 Brain (The Orchestrator)
+*   **Tech:** Custom Agentic Workflow (Audit $\to$ Gap-Fill $\to$ Synthesis).
+*   **Function:**
+    1.  **Audit:** Checks local DB. *"Do I know enough about Nuclear Fusion?"*
+    2.  **Gap-Fill:** If NO, triggers the Hunter and Scraper to fetch new data in real-time.
+    3.  **Synthesis:** Uses the AI Waterfall (AvalAI -> Cloudflare -> Ollama) to write a cited answer.
 
-This design favors continuity and controlled degradation over optimal-but-fragile performance.
-
----
-
-### 2. 🕷️ Smart Discovery Engine (Automatic Fallback)
-
-Nexus operates as an **active crawler**, not a sitemap-dependent scraper.
-
-* **Strategy A — Passive Discovery**
-  Parses `robots.txt` and `sitemap.xml` to identify valid, recent content with minimal overhead.
-
-* **Strategy B — Active BFS Crawl**
-  If sitemaps are missing, incomplete, or intentionally empty, Nexus switches to a **recursive breadth-first crawl**.
-  The crawler:
-
-  * Differentiates navigation pages from content pages
-  * Follows internal link structures selectively
-  * Filters out advertisements, tag pages, and low-signal URLs
-
-The goal is controlled discovery, not maximum page coverage.
-
----
-
-### 3. ⚡ High-Performance, Observable Architecture
-
-* **Concurrent Ingestion:**
-  Gevent-based workers handling dozens of simultaneous connections without blocking.
-
-* **Compliance-First Crawling:**
-  Strict `robots.txt` enforcement and configurable crawl delays.
-
-* **Operational Visibility:**
-  A Streamlit dashboard provides:
-
-  * Live crawl status
-  * Queue depth monitoring
-  * Manual triggers and overrides
-  * Visual inspection of extracted content
-
-The system is designed to be inspected, not treated as a black box.
+### 4. 🧬 Evolution (Self-Learning)
+*   **Tech:** Adaptive Scheduler.
+*   **Function:** If the Agent finds a new, useful website during a search, it **promotes** that domain.
+*   **Result:** One-off research turns into a permanent, automated monitoring job. The system builds its own knowledge base.
 
 ---
 
@@ -72,35 +44,39 @@ The system is designed to be inspected, not treated as a black box.
 
 ```mermaid
 graph TD
-    User([User]) -->|Control| Dash[Streamlit Dashboard]
+    User([User]) -->|Question| API[FastAPI / Orchestrator]
     
-    subgraph "Ingestion Engine"
-        Dash -->|1. Trigger| Redis[(Redis Queue)]
-        Redis -->|Queue: Default| Discovery[🕷️ Discovery Worker]
-        Discovery -->|A. Sitemap| Net((Internet))
-        Discovery -->|B. BFS Crawl| Net
-        Discovery -->|Found URLs| Redis
-        Redis -->|Queue: Default| Scraper[⚡ Scraper Worker]
-        Scraper -->|Extract HTML| DB[(PostgreSQL)]
+    subgraph "Phase 1: Memory"
+        API -->|Semantic Search| DB[(Postgres + Vector)]
+        DB -->|Context| API
     end
 
-    subgraph "Intelligence Engine"
-        Scraper -->|Chain Task| Redis
-        Redis -->|Queue: AI| Enricher[🧠 AI Worker]
-        
-        Enricher -->|Attempt 1| AvalAI[AvalAI API]
-        AvalAI -.->|Fail / 429| CF[Cloudflare AI]
-        CF -.->|Fail| Cohere[Cohere API]
-        Cohere -.->|Fail| Local[Ollama Local]
-        
-        Enricher -->|Persist Tags & Summaries| DB
+    subgraph "Phase 2 & 3: Eyes & Brain"
+        API -->|Decision: Need Info?| Hunter[👀 Hunter Module]
+        Hunter -->|Search Web| Tavily[Tavily / DDG]
+        Tavily -->|New URLs| Scraper[⚡ Scraper Worker]
+        Scraper -->|Extract & Embed| DB
+    end
+
+    subgraph "Phase 4: Evolution"
+        API -->|Good Source Found?| Scheduler[📅 Scheduler]
+        Scheduler -->|Create Job| DB
+    end
+
+    subgraph "AI Waterfall"
+        Enricher[🧠 AI Worker] -->|Reasoning| AvalAI
+        AvalAI -.->|Failover| Cloudflare
+        Cloudflare -.->|Failover| LocalOllama
     end
 ```
+
+---
+
 ## 🛠️ Quick Start
 
 ### Prerequisites
 *   Docker & Docker Compose installed.
-*   API Keys for at least one provider (AvalAI, Cloudflare, OpenRouter, etc.).
+*   (Optional but Recommended) API Keys for **Tavily** (Search) and **AvalAI/Cloudflare** (Reasoning).
 
 ### 1. Clone & Setup
 ```bash
@@ -110,7 +86,7 @@ touch .env
 ```
 
 ### 2. Configure Environment (.env)
-Paste the following into your `.env` file. You only need to fill in the keys you plan to use.
+Nexus uses a "Waterfall" strategy. It tries the best API first, then falls back to cheaper/local options.
 
 ```ini
 # --- INFRASTRUCTURE ---
@@ -121,75 +97,75 @@ POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
 REDIS_URL=redis://redis:6379/0
 
-# --- AI WATERFALL CONFIGURATION ---
-# The system tries these in order. 
+# --- SEARCH (The Eyes) ---
+# Get a free key at https://tavily.com (Recommended for best results)
+TAVILY_API_KEY=tvly-xxxxxxxxxxxx
 
-# 1. AvalAI (Primary)
+# --- AI REASONING (The Brain) ---
+# 1. AvalAI (Primary - High Speed/Quality)
 AVALAI_API_KEY=your_avalai_key
 AVALAI_MODEL=gemma-3n-e2b-it
 
-# 2. Cloudflare (Secondary)
+# 2. Cloudflare (Secondary - Cheap)
 CF_ACCOUNT_ID=your_cf_id
 CF_API_TOKEN=your_cf_token
 CF_MODEL=@cf/meta/llama-3-8b-instruct
 
-# 3. Cohere (Tertiary)
-COHERE_API_KEY=your_cohere_key
-
-# 4. OpenRouter (Quaternary)
-OPENROUTER_API_KEY=your_openrouter_key
-
-# 5. Local Ollama (Final Fallback)
+# 3. Local Ollama (Fallback - Slow but Private)
 AI_BASE_URL=http://ollama:11434
 AI_MODEL=phi3.5
+# Embedding Model (Required for Memory)
+EMBEDDING_MODEL=nomic-embed-text
 ```
 
 ### 3. Launch
 ```bash
-docker compose up --build -d
+# Build with no cache to ensure fresh dependencies
+docker compose build --no-cache
+docker compose up -d
 ```
 *Access the Dashboard at `http://localhost:8501`*
 
 ### 4. Initialize Database
+Since we use `pgvector`, we need to run migrations to enable the extension and create tables.
 ```bash
 docker exec scraper_api alembic upgrade head
 ```
 
 ---
 
-## 🖥️ Using the Dashboard
+## 🖥️ Using Nexus
 
-### 1. Smart Crawler
-*   Navigate to the **"Smart Crawler"** section in the sidebar.
-*   **Discovery Strategy:**
-    *   **Auto:** Tries sitemaps first. If that fails, it automatically switches to the Recursive Crawler.
-    *   **Force Recursive Crawl:** Ignores sitemaps and immediately starts spidering the site (depth 2).
-*   **Status:** Watch the logs in your terminal or the "Pipeline Status" metrics in the UI.
+### 🤖 1. Agent Chat (The Brain)
+*   Navigate to the **"🤖 Agent Chat"** tab.
+*   **Ask a question:** e.g., *"What are the latest breakthroughs in 6G technology?"*
+*   **Watch it think:**
+    1.  It checks its database.
+    2.  If empty, it hunts the web (Tavily/DDG).
+    3.  It scrapes the new links in the background.
+    4.  It writes a sourced answer.
+    5.  **Evolution:** Check the "Active Monitors" sidebar afterwards. You will see it automatically added the new sites to be monitored daily!
 
-### 2. Visual Feed
-*   Processed articles appear as cards with:
-    *   **Urgency Score** (1-10)
-    *   **AI Category**
-    *   **AI Summary** & **Tags**
-*   "Pending" or "Processing" items are shown in blue/gray until the AI finishes.
+### 📡 2. Smart Crawler (Manual)
+*   Sidebar: **"Add New Source"**
+*   Paste a URL (RSS feed, Homepage, or Article).
+*   Nexus auto-detects the type and sets up the appropriate crawler strategy (Sitemap vs Recursive).
 
-### Running Tests
-```bash
-docker exec scraper_api pytest tests/ -v
-```
+### 🔥 3. Live Feed
+*   View processed intelligence cards with **Urgency Scores**, **Summaries**, and **AI Tags**.
 
-### Resetting Data
-To clear the database but keep the config:
-```bash
-docker exec -i scraper_postgres psql -U admin -d scraper_db -c "TRUNCATE TABLE scraped_data, logs, sources RESTART IDENTITY CASCADE;"
-```
 ---
+
+## 🔧 Troubleshooting
+
+*   **Search Errors (SSL/Timeout):**
+    *   If you are on WSL2, we have set the Docker MTU to 1350 in `docker-compose.yml` to prevent packet fragmentation. If issues persist, ensure your VPN is off or compatible.
+*   **"Empty Response" from Agent:**
+    *   Ensure your `TAVILY_API_KEY` is set.
+    *   If using Local Ollama, ensure your GPU has enough VRAM (4GB+) to run both the Chat Model (`phi3.5`) and Embedding Model (`nomic-embed`) simultaneously. If not, use a Cloud API key (AvalAI/Cloudflare).
 
 ## 🎯 Design Philosophy
 
-* Prefer **resilience over elegance**
-* Prefer **controlled automation over aggressive scraping**
-* Assume **external services will fail**
-* Make every critical subsystem observable and replaceable
-
-Nexus is intended as a foundation for long-running, production-grade web intelligence workflows—not a disposable scraping script.
+*   **Adaptive:** The system should change its behavior based on what it finds.
+*   **Resilient:** If one API fails, try the next. If the network blips, retry.
+*   **Autonomous:** Don't wait for the human to add sources. Find them.
