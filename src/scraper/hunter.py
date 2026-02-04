@@ -1,7 +1,24 @@
 from tavily import TavilyClient # type: ignore
 from duckduckgo_search import DDGS # type: ignore
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+import requests
 from src.scraper.discovery import is_useful_link
 from src.config import settings
+
+# --- HELPER: Robust Tavily Search ---
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+def safe_tavily_search(api_key, topic, max_results):
+    """
+    Wraps Tavily client with retries to handle SSL/Network blips.
+    """
+    client = TavilyClient(api_key=api_key)
+    return client.search(
+        query=topic, 
+        search_depth="advanced", 
+        max_results=max_results,
+        include_domains=[], 
+        exclude_domains=["youtube.com", "facebook.com", "twitter.com", "tiktok.com"]
+    )
 
 def search_web(topic: str, max_results: int = 10) -> list[str]:
     """
@@ -14,14 +31,8 @@ def search_web(topic: str, max_results: int = 10) -> list[str]:
     # STRATEGY A: Tavily API (High Quality, Agent-Optimized)
     if settings.TAVILY_API_KEY:
         try:
-            client = TavilyClient(api_key=settings.TAVILY_API_KEY)
-            response = client.search(
-                query=topic, 
-                search_depth="advanced", 
-                max_results=max_results,
-                include_domains=[], 
-                exclude_domains=["youtube.com", "facebook.com", "twitter.com", "tiktok.com"]
-            )
+            # Use the robust helper
+            response = safe_tavily_search(settings.TAVILY_API_KEY, topic, max_results)
             
             for result in response.get("results", []):
                 url = result.get("url")
@@ -31,8 +42,10 @@ def search_web(topic: str, max_results: int = 10) -> list[str]:
             
             if valid_urls:
                 return valid_urls
+                
         except Exception as e:
-            print(f"⚠️ Tavily failed: {e}. Falling back to DuckDuckGo...")
+            # Clean error log to avoid spamming screen with full stacktrace
+            print(f"⚠️ Tavily failed (after retries): {str(e)[:100]}... Falling back to DuckDuckGo...")
 
     # STRATEGY B: DuckDuckGo (Free Fallback)
     print(f"👀 Hunter: Using DuckDuckGo fallback...")
@@ -52,8 +65,6 @@ def search_web(topic: str, max_results: int = 10) -> list[str]:
 
                 # OPTIMIZATION: Removed is_allowed() check here.
                 # The scrape_task will check compliance and fail gracefully if blocked.
-                # This allows us to return a list faster.
-                
                 if is_useful_link(url):
                     valid_urls.append(url)
                     print(f"  ✅ (DDG) Found: {result.get('title')}")
