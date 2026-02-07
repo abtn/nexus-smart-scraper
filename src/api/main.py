@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Query # type: ignore # import FastAPI and other dependencies
+from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from sqlalchemy import or_ # import or_ for complex queries
 from sqlalchemy.orm import Session # import Session for database interactions
 from typing import List # import List for type hinting
@@ -14,6 +15,16 @@ from src.scraper.tasks import generate_content_task
 import uuid
 
 app = FastAPI(title="Scraper API", version="1.0.0") # Initialize FastAPI app
+
+# --- CORS SETTINGS ---
+# This allows Next.js apps (running on different ports/domains) to hit this API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, replace "*" with specific domains ["https://cryptodaily.com"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def health_check():
