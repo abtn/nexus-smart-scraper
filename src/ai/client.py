@@ -32,31 +32,31 @@ class Brain:
                 pass
         return None
     
-    # --- NEW: PUBLIC CHAT METHOD ---
-    def chat(self, system_prompt: str, user_prompt: str, temperature: float = 0.3) -> str | None:
+    # --- PUBLIC CHAT METHOD ---
+    def chat(self, system_prompt: str, user_prompt: str, temperature: float = 0.3, model_id: str = None) -> str | None: # pyright: ignore[reportArgumentType]
         """
-        Generic chat interface using the provider waterfall.
-        Used by the Orchestrator for reasoning (Audit) and writing (Synthesis).
+        Generic chat interface.
+        If model_id is provided (e.g. 'gpt-4o'), it attempts to use that specific model via AvalAI.
+        Otherwise, it falls back to the standard waterfall (for the dashboard agent).
         """
-        # --- THE WATERFALL LOOP ---
         for provider_name, strategy_func in self.providers:
             try:
-                print(f"🧠 Brain (Chat): Trying provider '{provider_name}'...")
+                # print(f"🧠 Brain (Chat): Trying provider '{provider_name}'...")
                 
-                # Execute Strategy
-                raw_result = strategy_func(user_prompt, system_prompt)
+                # ONLY AvalAI supports dynamic model switching in our setup
+                if provider_name == 'avalai' and model_id:
+                     # Check if model_id is a valid key in config, or pass raw string
+                     real_model = settings.AVALAI_PRO_MODELS.get(model_id, model_id)
+                     raw_result = strategy_func(user_prompt, system_prompt, model_id_override=real_model) # pyright: ignore[reportCallIssue]
+                else:
+                     raw_result = strategy_func(user_prompt, system_prompt)
 
                 if raw_result:
-                    print(f"✅ Brain (Chat): Success via '{provider_name}'")
                     return raw_result.strip()
-                else:
-                    print(f"⚠️ Brain (Chat): '{provider_name}' returned empty.")
-
+                
             except Exception as e:
-                print(f"🔻 Brain (Chat): '{provider_name}' failed ({str(e)[:100]}...). Switching...")
+                print(f"🔻 Brain (Chat): '{provider_name}' failed. Switching... ({e})")
                 continue
-
-        print("🔥 Brain (Chat): All providers failed.")
         return None
     # --- ARTICLE ANALYSIS METHOD ---
     def analyze_article(self, text: str) -> dict | None:
@@ -113,10 +113,11 @@ class Brain:
 
     # --- PROVIDER STRATEGIES ---
 
-    def _think_avalai(self, user_prompt, system_prompt):
+    def _think_avalai(self, user_prompt, system_prompt, model_id_override=None):
         if not settings.AVALAI_API_KEY:
             raise ValueError("Missing AvalAI API Key")
-
+        # Use override if present, else default
+        model = model_id_override if model_id_override else settings.AVALAI_MODEL
         headers = {
             "Authorization": f"Bearer {settings.AVALAI_API_KEY}",
             "Content-Type": "application/json"

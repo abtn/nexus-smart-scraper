@@ -22,8 +22,11 @@ class ArticleDetail(ArticleResponse):
 
 # --- NEW: GENERATION SCHEMAS ---
 class GenerateRequest(BaseModel):
-    prompt: str = Field(..., description="Topic or question to answer")
-    max_new_sources: int = Field(3, ge=1, le=10, description="Max new URLs to scrape if knowledge is low")
+    prompt: str = Field(..., description="Topic")
+    max_new_sources: int = Field(3)
+    # New Optional Fields
+    model_id: Optional[str] = None # e.g., "gpt-4o"
+    use_judge: bool = False
 
 class GenerateResponse(BaseModel):
     task_id: str

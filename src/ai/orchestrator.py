@@ -187,7 +187,7 @@ class Orchestrator:
                 
             time.sleep(3)
 
-    def phase_3_synthesis(self, user_prompt: str) -> str:
+    def phase_3_synthesis(self, user_prompt: str, model_id: str = None) -> str: # pyright: ignore[reportArgumentType]
         """
         Re-read memory and write using the Smart API.
         """
@@ -214,10 +214,46 @@ class Orchestrator:
         return self.brain.chat(
             system_prompt="You are an expert tech writer.",
             user_prompt=writer_prompt,
-            temperature=0.7 
+            temperature=0.7,
+            model_id=model_id # <--- Pass this
         ) # pyright: ignore[reportReturnType]
+    def phase_4_judge_and_refine(self, draft_text: str, user_prompt: str, model_id: str) -> str:
+        """
+        The Critic Loop (Expert Mode Only).
+        1. Judge (Standard Model) reviews the draft.
+        2. Writer (Pro Model) rewrites based on critique.
+        """
+        print("⚖️ [JUDGE] Reviewing draft...")
+        
+        critique_prompt = f"""
+        CRITIQUE THIS ARTICLE DRAFT.
+        USER TOPIC: {user_prompt}
+        DRAFT: {draft_text[:5000]}
+        
+        TASK: Identify 3 specific weaknesses (tone, missing data, flow).
+        Output ONLY the 3 bullet points.
+        """
+        
+        # Judge uses standard model (Fast/Cheap)
+        critique = self.brain.chat("You are a strict Editor.", critique_prompt, temperature=0.1)
+        
+        if not critique:
+            return draft_text
 
-    def run(self, user_prompt: str, max_sources: int):
+        print(f"🔄 [REFINER] Improving draft based on critique...")
+        
+        refine_prompt = f"""
+        REWRITE this article based on the critique.
+        ORIGINAL DRAFT: {draft_text}
+        CRITIQUE: {critique}
+        TASK: Write the Final Version.
+        """
+        
+        # Writer uses Pro Model (High Quality)
+        final_version = self.brain.chat("You are an expert writer.", refine_prompt, temperature=0.7, model_id=model_id)
+        
+        return final_version if final_version else draft_text
+    def run(self, user_prompt: str, max_sources: int, model_id: str = None, use_judge: bool = False): # pyright: ignore[reportArgumentType]
         try:
             # 1. Audit
             audit = self.phase_1_audit(user_prompt)
@@ -230,10 +266,15 @@ class Orchestrator:
                 self.phase_2_gap_fill(audit['queries'], max_sources)
             
             # 3. Synthesis
-            self._update_status(GeneratedContentStatus.PROCESSING, generated_text="Synthesizing final answer...")
-            final_text = self.phase_3_synthesis(user_prompt)
+            self._update_status(GeneratedContentStatus.PROCESSING, generated_text="Synthesizing...")
+            final_text = self.phase_3_synthesis(user_prompt, model_id=model_id) # Pass model_id
             
-            # 4. Finalize
+            # 4. judge (New)
+            if use_judge and final_text and model_id:
+                self._update_status(GeneratedContentStatus.PROCESSING, generated_text="Judge is reviewing...")
+                final_text = self.phase_4_judge_and_refine(final_text, user_prompt, model_id)
+            
+            # 5. Finalize
             used_ids = [a.id for a in search_memory(user_prompt, limit=10)]
             
             self._update_status(GeneratedContentStatus.COMPLETED, 

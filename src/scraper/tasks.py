@@ -482,7 +482,7 @@ app.conf.beat_schedule = {
     },
 }
 @app.task(bind=True, queue='ai_queue')
-def generate_content_task(self, task_id: str, user_prompt: str, max_sources: int):
+def generate_content_task(self, task_id: str, user_prompt: str, max_sources: int, model_id: str = None, use_judge: bool = False): # pyright: ignore[reportArgumentType]
     """
     Celery Wrapper for the Orchestrator workflow.
     """
@@ -491,5 +491,5 @@ def generate_content_task(self, task_id: str, user_prompt: str, max_sources: int
     
     print(f"🚀 [BRAIN] Starting workflow Task ID: {task_id}")
     orchestrator = Orchestrator(task_id)
-    orchestrator.run(user_prompt, max_sources)
+    orchestrator.run(user_prompt, max_sources, model_id, use_judge)
     return "Workflow Finished"

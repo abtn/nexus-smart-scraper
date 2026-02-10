@@ -154,6 +154,12 @@ docker exec scraper_api alembic upgrade head
 ### 🔥 3. Live Feed
 *   View processed intelligence cards with **Urgency Scores**, **Summaries**, and **AI Tags**.
 
+### ✍️ 4. Expert Writer Studio
+*   **Access:** Click the button in the Dashboard sidebar or go to `http://localhost:8000/writer`.
+*   **Features:**
+    *   **Pro Models:** Use high-end models (GPT-4o, Llama 405B) for writing while keeping cheap models for reasoning.
+    *   **Critic Loop:** Enable the "Judge" to have a second AI review and refine the content before you see it.
+    *   **Markdown Editor:** dedicated interface for long-form content creation.
 ---
 
 ## 🔧 Troubleshooting

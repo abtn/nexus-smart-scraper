@@ -19,7 +19,7 @@ COPY requirements.txt .
 # 1. --timeout 1000: Wait much longer for slow connections
 # 2. --retries 10: Retry downloads 10 times before failing
 # 3. --index-url: Use a mirror if PyPI is slow (Optional, stick to default first)
-RUN pip install --no-cache-dir --timeout 1000 --retries 10 -r requirements.txt
+RUN pip install --timeout 1000 --retries 10 -r requirements.txt
 
 # Copy the rest of the application
 COPY . .

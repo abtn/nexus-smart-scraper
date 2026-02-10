@@ -43,7 +43,11 @@ st.markdown("""
 # ==========================================
 with st.sidebar:
     st.header("🎮 Nexus Control")
-
+    
+    st.divider()
+    # Add a prominent button to open the new tool
+    st.sidebar.link_button("✍️ Open Expert Writer Studio", "http://localhost:8000/writer", use_container_width=True)
+    
     # --- A. MAGIC INPUT ---
     st.caption("🚀 **Add New Source**")
     with st.form("smart_add_form"):

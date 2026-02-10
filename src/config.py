@@ -20,6 +20,15 @@ class Settings:
     AVALAI_API_KEY = os.getenv("AVALAI_API_KEY")
     AVALAI_BASE_URL = os.getenv("AVALAI_BASE_URL", "https://api.avalai.ir/v1/chat/completions")
     AVALAI_MODEL = os.getenv("AVALAI_MODEL", "gemma-3n-e2b-it")
+    
+    # --- PRO MODELS (For Expert Writing) ---
+    # Used only when explicitly requested by the Expert Writer
+    AVALAI_PRO_MODELS = {
+        "gemini-pro": "gemini-2.5-pro",
+        "gpt-4o": "chatgpt-4o-latest",
+        "llama-405b": "meta.llama3-1-405b-instruct-v1:0",
+        "mistral-large": "mistral.mistral-large-2407-v1:0"
+    }
 
     # --- 2. CLOUDFLARE ---
     CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")

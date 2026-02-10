@@ -1,5 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, Query # type: ignore # import FastAPI and other dependencies
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
+from fastapi.staticfiles import StaticFiles # pyright: ignore[reportMissingImports]
+from fastapi.responses import FileResponse # pyright: ignore[reportMissingImports]
+
 from sqlalchemy import or_ # import or_ for complex queries
 from sqlalchemy.orm import Session # import Session for database interactions
 from typing import List # import List for type hinting
@@ -15,6 +18,7 @@ from src.scraper.tasks import generate_content_task
 import uuid
 
 app = FastAPI(title="Scraper API", version="1.0.0") # Initialize FastAPI app
+app.mount("/static", StaticFiles(directory="src/api/static"), name="static")
 
 # --- CORS SETTINGS ---
 # This allows Next.js apps (running on different ports/domains) to hit this API.
@@ -30,6 +34,12 @@ app.add_middleware(
 def health_check():
     """Simple health check endpoint."""
     return {"status": "ok", "message": "Scraper API is running"}
+
+@app.get("/writer")
+async def expert_writer_ui():
+    """Serves the standalone Expert Writer Interface"""
+    return FileResponse('src/api/static/writer.html')
+
 # 1. Get List of Articles
 @app.get("/api/v1/articles", response_model=List[ArticleResponse])
 def get_articles(
@@ -138,7 +148,7 @@ def start_generation(request: GenerateRequest):
         
     # Trigger Celery Task
     generate_content_task.apply_async( # pyright: ignore[reportFunctionMemberAccess]
-        args=[task_id, request.prompt, request.max_new_sources],
+        args=[task_id, request.prompt, request.max_new_sources, request.model_id, request.use_judge],
         task_id=task_id
     )
     
