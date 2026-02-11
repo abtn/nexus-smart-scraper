@@ -33,28 +33,10 @@
         }
 
         /* Scrollbars */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: var(--bg-dark);
-        }
-        ::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--primary);
-        }
-
-        /* Components */
-        .nexus-card {
-            background-color: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
 
         .nexus-input {
             background-color: #0f172a;
@@ -78,81 +60,65 @@
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
         }
-        .btn-primary:active {
-            transform: translateY(0);
-        }
-        .btn-primary:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
+
+        /* --- FIXED TOGGLE SWITCH CSS --- */
+        .toggle-container {
+            position: relative;
+            width: 2.75rem;
+            height: 1.5rem;
         }
 
-        /* Toggle Switch */
-        .toggle-checkbox:checked {
-            right: 0;
-            border-color: var(--primary);
+        .toggle-checkbox {
+            opacity: 0;
+            width: 0;
+            height: 0;
         }
+
+        .toggle-label {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #334155;
+            transition: .3s;
+            border-radius: 9999px;
+            cursor: pointer;
+        }
+
+        .toggle-label:before {
+            position: absolute;
+            content: "";
+            height: 1.1rem;
+            width: 1.1rem;
+            left: 0.2rem;
+            bottom: 0.2rem;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
         .toggle-checkbox:checked + .toggle-label {
             background-color: var(--primary);
         }
+
+        .toggle-checkbox:checked + .toggle-label:before {
+            transform: translateX(1.25rem);
+        }
+        /* ------------------------------- */
         
-        /* Markdown Preview Styles */
-        .prose-content {
-            line-height: 1.7;
-            color: #e2e8f0;
-            font-size: 1.05rem;
-        }
-        .prose-content h1 { font-size: 2.2em; font-weight: 800; margin-bottom: 0.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; letter-spacing: -0.02em; }
+        .prose-content { line-height: 1.7; color: #e2e8f0; font-size: 1.05rem; }
+        .prose-content h1 { font-size: 2.2em; font-weight: 800; margin-bottom: 0.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
         .prose-content h2 { font-size: 1.75em; font-weight: 700; margin-top: 1.5em; margin-bottom: 0.5em; color: var(--primary); }
-        .prose-content h3 { font-size: 1.4em; font-weight: 600; margin-top: 1.2em; color: #cbd5e1; }
         .prose-content p { margin-bottom: 1.2em; }
-        .prose-content ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
-        .prose-content ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 1em; }
-        .prose-content a { color: var(--primary); text-decoration: underline; text-underline-offset: 4px; }
-        .prose-content code { background: #020617; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em; color: #e2e8f0; border: 1px solid #334155; }
-        .prose-content pre { background: #020617; padding: 1em; border-radius: 8px; overflow-x: auto; border: 1px solid #334155; margin-bottom: 1em; }
-        .prose-content pre code { background: transparent; border: none; padding: 0; color: #f8fafc; }
-        .prose-content blockquote { border-left: 4px solid var(--primary); padding-left: 1em; color: var(--text-muted); font-style: italic; background: rgba(139, 92, 246, 0.05); padding: 1em; border-radius: 0 8px 8px 0; margin-bottom: 1em; }
+        .prose-content blockquote { border-left: 4px solid var(--primary); padding-left: 1em; color: var(--text-muted); font-style: italic; background: rgba(139, 92, 246, 0.05); padding: 1em; margin-bottom: 1em; }
 
-        /* Loading Pulse */
-        @keyframes pulse-glow {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        .animate-pulse-fast {
-            animation: pulse-glow 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
+        @keyframes pulse-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .animate-pulse-fast { animation: pulse-glow 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 
-        /* Toast Notification */
-        #toast-container {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            z-index: 50;
-        }
-        .toast {
-            background: var(--bg-card);
-            border-left: 4px solid var(--primary);
-            padding: 16px;
-            border-radius: 8px;
-            margin-top: 10px;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            animation: slideIn 0.3s ease-out;
-            max-width: 300px;
-            color: white;
-        }
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
+        #toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 50; }
+        .toast { background: var(--bg-card); border-left: 4px solid var(--primary); padding: 16px; border-radius: 8px; margin-top: 10px; display: flex; align-items: center; gap: 12px; color: white; }
     </style>
 </head>
 <body>
 
-    <!-- Header -->
     <header class="h-16 border-b border-slate-700 flex items-center justify-between px-6 bg-slate-900/50 backdrop-blur-md sticky top-0 z-20">
         <div class="flex items-center gap-3">
             <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
@@ -169,74 +135,59 @@
         </div>
     </header>
 
-    <!-- Main Layout -->
     <main class="flex-1 flex overflow-hidden">
-        
-        <!-- LEFT PANEL: SETTINGS -->
+        <!-- LEFT PANEL -->
         <aside class="w-96 border-r border-slate-700 flex flex-col bg-slate-900 overflow-y-auto">
             <div class="p-6 space-y-8">
-                
-                <!-- Section: Topic -->
-                <div class="space-y-3">
+                <div>
                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">Topic & Instructions</label>
-                    <textarea id="input-topic" class="w-full h-32 nexus-input rounded-lg p-3 text-sm resize-none" placeholder="e.g., Write an in-depth analysis of the 6G technology landscape..."></textarea>
+                    <textarea id="input-topic" class="w-full h-32 nexus-input rounded-lg p-3 text-sm resize-none mt-2" placeholder="e.g., Write an in-depth analysis of the 6G technology landscape..."></textarea>
                 </div>
 
-                <!-- Section: AI Engine (UPDATED) -->
                 <div class="space-y-4">
                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">Intelligence Engine</label>
-
-                    <!-- Model Select -->
                     <div>
                         <span class="text-sm text-slate-300 block mb-1">Writer Model</span>
                         <select id="select-model" class="w-full nexus-input rounded-lg p-2.5 text-sm">
                             <optgroup label="Expert Models (AvalAI Pro)">
                                 <option value="gpt-4o" selected>GPT-4o (Best Quality)</option>
-                                <option value="llama-405b">Llama 3.1 405B (Open Source King)</option>
-                                <option value="gemini-pro">Gemini 2.5 Pro (Huge Context)</option>
-                                <option value="mistral-large">Mistral Large 2 (European Top)</option>
-                                <option value="grok-beta">Grok 4 (Creative)</option>
+                                <option value="llama-405b">Llama 3.1 405B</option>
+                                <option value="gemini-pro">Gemini 2.5 Pro</option>
+                                <option value="mistral-large">Mistral Large 2</option>
                             </optgroup>
                             <optgroup label="Standard Models">
-                                <option value="avalai">AvalAI Default (Gemma/Llama)</option>
-                                <option value="cloudflare">Cloudflare (Cheap)</option>
-                                <option value="ollama">Local (Privacy)</option>
+                                <option value="avalai">AvalAI Default</option>
+                                <option value="ollama">Local (Ollama)</option>
                             </optgroup>
                         </select>
                     </div>
 
-                    <!-- Judge Toggle -->
+                    <!-- Judge Toggle (FIXED) -->
                     <div class="flex items-center justify-between text-sm p-3 bg-slate-800 rounded-lg border border-slate-700">
                         <div>
                             <span class="text-slate-200 font-semibold block">AI Critic Loop</span>
                             <span class="text-slate-500 text-xs block">Judge & Refine Draft</span>
                         </div>
-                        <div class="relative inline-block w-10 align-middle select-none">
-                            <input type="checkbox" id="toggle-judge" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-slate-300 top-0 left-0 checked:right-0 checked:border-violet-500 transition-all duration-300" checked/>
-                            <label for="toggle-judge" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-700 cursor-pointer"></label>
+                        <div class="toggle-container">
+                            <input type="checkbox" id="toggle-judge" class="toggle-checkbox" checked />
+                            <label for="toggle-judge" class="toggle-label"></label>
                         </div>
                     </div>
                 </div>
 
                 <hr class="border-slate-700">
 
-                <!-- Section: Content Strategy -->
                 <div class="space-y-4">
                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">Content Strategy</label>
-                    
-                    <!-- Tone -->
                     <div>
-                        <span class="text-sm text-slate-300 block mb-1">Tone of Voice</span>
+                        <span class="text-sm text-slate-300 block mb-1">Tone</span>
                         <select id="select-tone" class="w-full nexus-input rounded-lg p-2.5 text-sm">
-                            <option value="Professional" selected>Professional & Authoritative</option>
-                            <option value="Casual">Casual & Conversational</option>
-                            <option value="Academic">Academic & Analytical</option>
-                            <option value="Persuasive">Marketing & Persuasive</option>
-                            <option value="Witty">Witty & Tech-Savvy</option>
+                            <option value="Professional" selected>Professional</option>
+                            <option value="Casual">Casual</option>
+                            <option value="Academic">Academic</option>
+                            <option value="Witty">Witty</option>
                         </select>
                     </div>
-
-                    <!-- Sliders -->
                     <div>
                         <div class="flex justify-between text-sm mb-1">
                             <span class="text-slate-300">Max New Sources</span>
@@ -244,113 +195,73 @@
                         </div>
                         <input type="range" id="range-sources" min="0" max="10" value="5" class="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer">
                     </div>
-                    
                     <div>
                          <div class="flex justify-between text-sm mb-1">
-                            <span class="text-slate-300">Length Target</span>
+                            <span class="text-slate-300">Length</span>
                             <span id="val-length" class="text-violet-400">Medium</span>
                         </div>
                         <input type="range" id="range-length" min="1" max="3" value="2" class="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer">
                     </div>
                 </div>
 
-                <hr class="border-slate-700">
-
-                <!-- Section: SEO -->
                 <div class="space-y-3">
                     <div class="flex items-center justify-between text-sm">
                         <span class="text-slate-300">Include References & SEO</span>
-                        <div class="relative inline-block w-10 mr-2 align-middle select-none">
-                            <input type="checkbox" id="toggle-seo" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-slate-300 top-0 left-0 checked:right-0 checked:border-violet-500 transition-all duration-300" checked/>
-                            <label for="toggle-seo" class="toggle-label block overflow-hidden h-5 rounded-full bg-slate-700 cursor-pointer"></label>
+                        <div class="toggle-container">
+                            <input type="checkbox" id="toggle-seo" class="toggle-checkbox" checked />
+                            <label for="toggle-seo" class="toggle-label"></label>
                         </div>
                     </div>
                 </div>
-
             </div>
 
-            <!-- Sticky Footer for Action -->
-            <div class="p-6 border-t border-slate-700 bg-slate-900 mt-auto z-10">
-                <button id="btn-generate" class="w-full btn-primary py-3 rounded-xl shadow-lg flex items-center justify-center gap-2 hover:shadow-violet-500/20 transition-all">
+            <div class="p-6 border-t border-slate-700 bg-slate-900 mt-auto">
+                <button id="btn-generate" class="w-full btn-primary py-3 rounded-xl shadow-lg flex items-center justify-center gap-2">
                     <i class="fa-solid fa-wand-magic-sparkles"></i>
                     <span>Generate Masterpiece</span>
                 </button>
             </div>
         </aside>
 
-        <!-- RIGHT PANEL: EDITOR & OUTPUT -->
+        <!-- RIGHT PANEL -->
         <section class="flex-1 flex flex-col bg-slate-950 relative">
-            
-            <!-- Top Bar: Tabs & Status -->
             <div class="h-14 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-900/30">
-                <!-- Tabs -->
                 <div class="flex gap-1 bg-slate-800 p-1 rounded-lg">
                     <button class="tab-btn active px-4 py-1.5 rounded-md text-sm font-medium transition-all text-white bg-slate-600" data-tab="article">Article</button>
-                    <button class="tab-btn px-4 py-1.5 rounded-md text-sm font-medium text-slate-400 hover:text-white transition-all" data-tab="raw">Raw Markdown</button>
+                    <button class="tab-btn px-4 py-1.5 rounded-md text-sm font-medium text-slate-400 hover:text-white transition-all" data-tab="raw">Markdown</button>
                 </div>
-
-                <!-- Status Indicator -->
                 <div id="status-container" class="hidden items-center gap-3">
                     <span id="status-text" class="text-sm text-violet-300 animate-pulse-fast">Initializing...</span>
                     <div class="w-32 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                         <div id="status-bar" class="h-full bg-violet-500 transition-all duration-500" style="width: 5%"></div>
                     </div>
                 </div>
-
-                <!-- Actions -->
                 <div class="flex gap-2">
-                    <button id="btn-copy" class="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800" title="Copy to Clipboard">
-                        <i class="fa-regular fa-copy"></i>
-                    </button>
-                    <button id="btn-download" class="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800" title="Download Markdown">
-                        <i class="fa-solid fa-download"></i>
-                    </button>
+                    <button id="btn-copy" class="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800"><i class="fa-regular fa-copy"></i></button>
+                    <button id="btn-download" class="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800"><i class="fa-solid fa-download"></i></button>
                 </div>
             </div>
 
-            <!-- Content Area -->
-            <div class="flex-1 overflow-y-auto p-8 scroll-smooth" id="scroll-container">
-                
-                <!-- Placeholder State -->
+            <div class="flex-1 overflow-y-auto p-8 scroll-smooth">
                 <div id="empty-state" class="h-full flex flex-col items-center justify-center text-slate-500 opacity-60">
-                    <div class="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6">
-                        <i class="fa-solid fa-pen-nib text-3xl text-slate-600"></i>
-                    </div>
-                    <h3 class="text-xl font-semibold text-slate-400 mb-2">Ready to Write</h3>
-                    <p class="text-sm max-w-sm text-center">Select your model, define your topic, and let the Agentic Workflow handle the research and writing.</p>
+                    <i class="fa-solid fa-pen-nib text-4xl mb-4"></i>
+                    <p>Configure settings and click Generate to start.</p>
                 </div>
-
-                <!-- Article Content -->
                 <div id="tab-article" class="tab-content hidden max-w-4xl mx-auto pb-20">
-                    <div id="article-body" class="prose-content">
-                        <!-- Content injected here -->
-                    </div>
+                    <div id="article-body" class="prose-content"></div>
                 </div>
-                
-                <!-- Raw Markdown Content -->
-                 <div id="tab-raw" class="tab-content hidden max-w-4xl mx-auto pb-20 h-full">
-                    <textarea id="raw-output" class="w-full h-full bg-slate-900 border border-slate-700 rounded-lg p-4 font-mono text-sm text-slate-300 resize-none focus:outline-none focus:border-violet-500" readonly></textarea>
+                <div id="tab-raw" class="tab-content hidden max-w-4xl mx-auto pb-20 h-full">
+                    <textarea id="raw-output" class="w-full h-full bg-slate-900 border border-slate-700 rounded-lg p-4 font-mono text-sm text-slate-300 resize-none focus:outline-none" readonly></textarea>
                 </div>
-
             </div>
         </section>
     </main>
 
-    <!-- Toast Container -->
     <div id="toast-container"></div>
 
-    <!-- JAVASCRIPT LOGIC -->
     <script>
-        // ==========================================
-        // CONFIGURATION & STATE
-        // ==========================================
-        const API_BASE = window.location.origin + "/api"; // Auto-detect host
-        
-        const state = {
-            currentTaskId: null,
-            generatedContent: null
-        };
-
+        const API_BASE = window.location.origin + "/api";
+        const state = { currentTaskId: null, generatedContent: null };
         const els = {
             inputTopic: document.getElementById('input-topic'),
             selectModel: document.getElementById('select-model'),
@@ -372,19 +283,12 @@
             btnDownload: document.getElementById('btn-download')
         };
 
-        // ==========================================
-        // UI HANDLERS
-        // ==========================================
-
-        // Sliders
         els.rangeSources.addEventListener('input', (e) => els.valSources.textContent = e.target.value);
         els.rangeLength.addEventListener('input', (e) => {
-            const val = parseInt(e.target.value);
             const map = {1: 'Short', 2: 'Medium', 3: 'Long'};
-            els.valLength.textContent = map[val];
+            els.valLength.textContent = map[e.target.value];
         });
 
-        // Tabs
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.tab-btn').forEach(b => {
@@ -392,90 +296,51 @@
                     b.classList.add('text-slate-400');
                 });
                 btn.classList.add('active', 'bg-slate-600', 'text-white');
-                btn.classList.remove('text-slate-400');
-                
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
                 document.getElementById(`tab-${btn.dataset.tab}`).classList.remove('hidden');
             });
         });
 
-        // ==========================================
-        // GENERATION LOGIC
-        // ==========================================
-
         els.btnGenerate.addEventListener('click', async () => {
             const topic = els.inputTopic.value.trim();
-            if (!topic) {
-                showToast("Please enter a topic first.", "error");
-                els.inputTopic.focus();
-                return;
-            }
+            if (!topic) return showToast("Please enter a topic", "error");
 
             setLoadingState(true);
-            
             try {
-                // Construct Prompt with Instructions
-                const tone = els.selectTone.value;
-                const lengthMap = {1: 'concise', 2: 'comprehensive', 3: 'very detailed deep-dive'};
-                const length = lengthMap[els.rangeLength.value];
-                const seo = els.toggleSeo.checked;
-                
-                let prompt = `Write a ${length} article about: "${topic}".\n`;
-                prompt += `Tone: ${tone}.\n`;
-                if (seo) prompt += `Include a 'References' section citing sources.\n`;
-                prompt += `Use Markdown headers and formatting.`;
+                const lengthMap = {1: 'concise', 2: 'comprehensive', 3: 'very detailed'};
+                let prompt = `Write a ${lengthMap[els.rangeLength.value]} article about: "${topic}". Tone: ${els.selectTone.value}.`;
+                if (els.toggleSeo.checked) prompt += ` Include references.`;
 
-                // Prepare Payload
-                const payload = {
-                    prompt: prompt,
-                    max_new_sources: parseInt(els.rangeSources.value),
-                    model_id: els.selectModel.value, // Pass the Expert Model ID
-                    use_judge: els.toggleJudge.checked // Pass the Judge Flag
-                };
-
-                // Start Task
-                const response = await fetch(`${API_BASE}/generate`, {
+                const res = await fetch(`${API_BASE}/generate`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        max_new_sources: parseInt(els.rangeSources.value),
+                        model_id: els.selectModel.value,
+                        use_judge: els.toggleJudge.checked
+                    })
                 });
 
-                if (!response.ok) throw new Error(`API Request Failed: ${response.status}`);
-
-                const data = await response.json();
-                state.currentTaskId = data.task_id;
-
-                // Start Polling
-                pollTask(state.currentTaskId);
-
+                const data = await res.json();
+                pollTask(data.task_id);
             } catch (err) {
-                console.error(err);
-                showToast("Connection Error: " + err.message, "error");
+                showToast("Connection Error", "error");
                 setLoadingState(false);
             }
         });
 
         async function pollTask(taskId) {
             const interval = setInterval(async () => {
-                try {
-                    const res = await fetch(`${API_BASE}/generate/${taskId}`);
-                    if (!res.ok) throw new Error("Polling Error");
-                    
-                    const taskData = await res.json();
-                    
-                    updateStatus(taskData.progress);
-
-                    if (taskData.status === 'completed') {
-                        clearInterval(interval);
-                        finishGeneration(taskData);
-                    } else if (taskData.status === 'failed') {
-                        clearInterval(interval);
-                        throw new Error(taskData.generated_text || "Task failed");
-                    }
-
-                } catch (err) {
+                const res = await fetch(`${API_BASE}/generate/${taskId}`);
+                const data = await res.json();
+                updateStatus(data.progress);
+                if (data.status === 'completed') {
                     clearInterval(interval);
-                    showToast(err.message, "error");
+                    finishGeneration(data);
+                } else if (data.status === 'failed') {
+                    clearInterval(interval);
+                    showToast("Failed", "error");
                     setLoadingState(false);
                 }
             }, 2000);
@@ -483,72 +348,45 @@
 
         function updateStatus(progress) {
             els.statusText.textContent = progress || "Processing...";
-            
-            // Heuristic progress bar
-            let percent = 10;
-            if (progress.includes("Hunting")) percent = 30;
-            else if (progress.includes("Synthesizing")) percent = 60;
-            else if (progress.includes("Judge")) percent = 80;
-            else if (progress.includes("Complete")) percent = 100;
-            
-            els.statusBar.style.width = `${percent}%`;
+            let p = 10;
+            if (progress.includes("Hunting")) p = 30;
+            else if (progress.includes("Synthesizing")) p = 60;
+            else if (progress.includes("Judge")) p = 80;
+            else if (progress.includes("Complete")) p = 100;
+            els.statusBar.style.width = `${p}%`;
         }
 
         function finishGeneration(data) {
             setLoadingState(false);
-            showToast("Content generated successfully!", "success");
-            
             els.emptyState.classList.add('hidden');
             document.querySelector('.tab-btn[data-tab="article"]').click();
-            
-            // Render
-            els.articleBody.innerHTML = marked.parse(data.generated_text || "No content returned.");
+            els.articleBody.innerHTML = marked.parse(data.generated_text || "");
             els.rawOutput.value = data.generated_text || "";
             state.generatedContent = data.generated_text;
+            showToast("Success!", "success");
         }
 
         function setLoadingState(isLoading) {
-            if (isLoading) {
-                els.btnGenerate.disabled = true;
-                els.btnGenerate.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> <span>Working...</span>`;
-                els.statusContainer.classList.remove('hidden');
-                els.emptyState.classList.add('hidden');
-                els.articleBody.innerHTML = '';
-            } else {
-                els.btnGenerate.disabled = false;
-                els.btnGenerate.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> <span>Generate Masterpiece</span>`;
-                els.statusContainer.classList.add('hidden');
-            }
+            els.btnGenerate.disabled = isLoading;
+            els.btnGenerate.innerHTML = isLoading ? `<i class="fa-solid fa-circle-notch fa-spin"></i>` : `<i class="fa-solid fa-wand-magic-sparkles"></i> <span>Generate Masterpiece</span>`;
+            if (isLoading) { els.statusContainer.classList.remove('hidden'); els.articleBody.innerHTML = ''; }
+            else els.statusContainer.classList.add('hidden');
         }
 
-        function showToast(message, type = 'info') {
+        function showToast(m, t) {
             const toast = document.createElement('div');
             toast.className = 'toast';
-            const color = type === 'success' ? 'text-emerald-400' : 'text-rose-400';
-            const icon = type === 'success' ? 'fa-check-circle' : 'fa-circle-exclamation';
-            
-            toast.innerHTML = `<i class="fa-solid ${icon} ${color} text-lg"></i> <span>${message}</span>`;
+            toast.innerHTML = `<span>${m}</span>`;
             document.getElementById('toast-container').appendChild(toast);
-            setTimeout(() => { toast.remove(); }, 4000);
+            setTimeout(() => toast.remove(), 4000);
         }
 
-        // Copy & Download
-        els.btnCopy.addEventListener('click', () => {
-            if (!state.generatedContent) return;
-            navigator.clipboard.writeText(state.generatedContent);
-            showToast("Copied to clipboard!", "success");
-        });
-
+        els.btnCopy.addEventListener('click', () => { navigator.clipboard.writeText(state.generatedContent); showToast("Copied!", "success"); });
         els.btnDownload.addEventListener('click', () => {
-            if (!state.generatedContent) return;
             const blob = new Blob([state.generatedContent], { type: 'text/markdown' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `expert-article-${Date.now()}.md`;
-            a.click();
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+            a.download = `article-${Date.now()}.md`; a.click();
         });
-
     </script>
 </body>
 </html>

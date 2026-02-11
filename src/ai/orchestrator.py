@@ -59,13 +59,15 @@ class Orchestrator:
             if not domain: continue
 
             # 3. Check if we are already monitoring this domain
+            # Fix: Use ILIKE for case-insensitive matching and ensure we check the URL field properly
             # We look for a DISCOVERY job that references this domain
             existing_job = self.db.query(ScheduledJob).filter(
                 ScheduledJob.job_type == JobType.DISCOVERY,
-                ScheduledJob.url.contains(domain)
+                ScheduledJob.url.ilike(f"%{domain}%") # Use ILIKE for matching
             ).first()
 
             if existing_job:
+                print(f"  ♻️  Domain {domain} is already monitored (Job ID: {existing_job.id}). Skipping.")
                 continue
 
             print(f"  🚀 Promoting new high-value domain: {domain}")
